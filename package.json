@@ -1,0 +1,85 @@
+{
+  "name": "stormready",
+  "version": "1.1.0",
+  "private": true,
+  "main": "expo-router/entry",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo run:android",
+    "android:apk": "npx eas-cli@latest build --platform android --profile preview",
+    "lint": "expo lint",
+    "typecheck": "tsc --noEmit",
+    "test": "jest",
+    "test:ci": "jest --ci --runInBand",
+    "test:coverage": "jest --ci --coverage",
+    "doctor": "expo-doctor"
+  },
+  "dependencies": {
+    "@maplibre/maplibre-react-native": "11.3.4",
+    "@react-native-async-storage/async-storage": "2.2.0",
+    "expo": "~58.0.16",
+    "expo-blur": "~58.0.5",
+    "expo-constants": "~58.0.12",
+    "expo-file-system": "~58.0.9",
+    "expo-linking": "~58.0.13",
+    "expo-location": "~58.0.18",
+    "expo-notifications": "~58.1.5",
+    "expo-router": "~58.0.24",
+    "expo-status-bar": "~58.0.3",
+    "expo-updates": "~58.0.17",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "react-native": "0.88.0",
+    "react-native-gesture-handler": "~3.3.0",
+    "react-native-reanimated": "4.7.1",
+    "react-native-safe-area-context": "~5.10.1",
+    "react-native-screens": "~4.30.0",
+    "react-native-web": "~0.21.4",
+    "react-native-webview": "14.0.1",
+    "react-native-worklets": "0.13.0"
+  },
+  "devDependencies": {
+    "@testing-library/react-native": "^14.1.0",
+    "@types/geojson": "^7946.0.16",
+    "@types/jest": "^30.0.0",
+    "@types/react": "~19.3.0",
+    "eslint": "^9.0.0",
+    "eslint-config-expo": "~58.0.4",
+    "typescript": "~6.0.3",
+    "jest": "~30.5.2",
+    "jest-expo": "~58.0.11"
+  },
+  "allowScripts": {
+    "unrs-resolver@1.12.2": true
+  },
+  "jest": {
+    "preset": "jest-expo",
+    "setupFiles": [
+      "<rootDir>/jest.setup.js"
+    ],
+    "testMatch": [
+      "**/__tests__/**/*.test.ts?(x)"
+    ],
+    "clearMocks": true,
+    "collectCoverageFrom": [
+      "src/**/*.{ts,tsx}",
+      "!src/**/*.d.ts",
+      "!src/app/**/map.native.tsx",
+      "!src/app/**/map.web.tsx"
+    ],
+    "coverageThreshold": {
+      "global": {
+        "statements": 60
+      },
+      "./src/kit/": {
+        "statements": 80
+      },
+      "./src/storage/": {
+        "statements": 80
+      },
+      "./src/zone/": {
+        "statements": 80
+      }
+    }
+  }
+}

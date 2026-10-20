@@ -1,0 +1,643 @@
+# StormReady v1.1 — Technical Build Spec (agent-executable)
+
+**Release:** v1.1 "Ready Kit"
+**Status:** Approved for implementation
+**Owner:** Mobile engineering
+**Companion doc:** `docs/spec/01-project-plan.md` (what / why / when). This document is **how**.
+
+---
+
+## 0. How to use this spec
+
+You are an implementation agent working in this repo. This document is the contract.
+
+- Every requirement is numbered (`R-<area>-<n>`) and every acceptance criterion is testable.
+- **Do not trust your training data on Expo APIs.** This repo is on **Expo SDK 58 / React Native 0.88 / React 19.3 / Reanimated 4.7**. Before writing code against any Expo or RN API, fetch the matching versioned docs: `https://docs.expo.dev/versions/v58.0.0/<page>` (append `.md` for the agent-readable version) and `https://docs.expo.dev/llms.txt`.
+- `android/` and `ios/` are **generated** (Continuous Native Generation). Never create or hand-edit them. Native behavior lives in `app.json` + config plugins.
+- MapLibre ships native code, so the app requires a **development build** (`npx expo run:android` or `eas build --profile development`). Expo Go cannot render the Map tab.
+- Required gates before a PR is "done": `npx expo lint`, `npx tsc --noEmit`, `npm test`, plus a manual pass on a physical device for anything touching location, maps, files, or notifications.
+
+### 0.1 Current baseline (verified against this repo)
+
+
+| Area    | State today                                                                                                                                                                                                          |
+| ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Routes  | `src/app/_layout.tsx` → `(tabs)/{index,plan,map,updates,settings}`; `map` is platform-split (`map.tsx` re-exports `map.web.tsx`; `map.native.tsx` is the MapLibre implementation)                                    |
+| State   | `src/plan.tsx` (`PlanProvider`, AsyncStorage key `stormready.plan.v1`), `src/theme.ts` (key `stormready.theme.dark.v1`)                                                                                              |
+| Data    | `src/shelters.ts` (FEMA ArcGIS + Overpass), `src/zone.ts` (Florida DEM ArcGIS), `src/offline-router.ts` (Overpass download + Dijkstra + offline destination index)                                                   |
+| Storage | `AsyncStorage` for plan, theme, alert snapshot (`stormready.weather-alerts.snapshot.v1`) and area pack (`stormready.area.v2`); large road graph + destination index already use `expo-file-system` (`File`, `Paths`) |
+| UI kit  | `src/ui.tsx` — `Page`, `Header`, `Card`, `Label`, `Body`, `Field`, `Action`, `Pill`, `Row`, `MotionPressable`; tokens in `src/theme.ts` (light + dark palettes)                                                      |
+| Map     | `src/app/(tabs)/map.native.tsx` — offline packs, shelters, zone sheet, route + guidance, county PDF via `WebView`                                                                                                    |
+| Build   | `app.json` (Android-only: package `org.stormready.app`, location permissions plugin), `eas.json` (`preview` = internal APK, `production`), CI absent, tests absent                                                   |
+
+
+### 0.2 Non-goals for v1.1
+
+No accounts, no cloud sync, no analytics SDK, no background push server, no live traffic, no official alert authority, no automated Mexico alerts, no paid features, no iOS App Store submission (iOS is parity + internal testing only).
+
+---
+
+## 1. Scope of the v1.1 build
+
+Six features, one shared foundation.
+
+
+| ID  | Feature                                                  | Area          |
+| --- | -------------------------------------------------------- | ------------- |
+| F1  | Versioned local storage layer + plan schema v2           | Foundation    |
+| F2  | First-run onboarding (household, zone, permissions)      | Onboarding    |
+| F3  | Emergency kit calculator + shareable kit list            | Kit           |
+| F4  | Manual evacuation-zone verification outside Florida      | Zones         |
+| F5  | Local reminders (checklist nudges + "recheck your area") | Notifications |
+| F6  | Accessibility, iOS parity, tests, CI, OTA                | Quality       |
+
+
+**Critical path:** F1 → F2 → F3. F4 and F5 depend on F1 only. F6 runs continuously.
+
+---
+
+## 2. Architecture
+
+### 2.1 Target module map
+
+```
+src/
+  storage/
+    keys.ts            # every persisted key + schema version, one place
+    store.ts           # typed JSON read/write with schema version + migration
+    migrate.ts         # v1 → v2 plan migration
+  kit/
+    catalog.ts         # static kit item catalog (id, label, category, unit, source)
+    calculator.ts      # pure functions: household → kit lines + totals
+    format.ts          # formatting helpers (gallons, quantities, dates)
+  zone/
+    verification.ts    # manual zone entry model, validation, source list
+  notifications/
+    scheduler.ts       # local notification scheduling/cancelling (expo-notifications)
+    channels.ts        # Android channel + permission setup
+  net/
+    http.ts            # fetch wrapper: timeout, retry/backoff, user-agent, error mapping
+  plan.tsx             # PlanProvider (now consumes storage/store)
+  theme.ts             # unchanged tokens
+  ui.tsx               # shared components (extended, see §7)
+  app/
+    _layout.tsx        # providers + onboarding redirect
+    onboarding/        # NEW route group: welcome, household, zone, done
+    (tabs)/...
+```
+
+Rule: `**src/app/**` contains routes only.** Components, hooks, and utilities live outside it.
+
+### 2.2 Dependency direction
+
+```
+routes (src/app)  →  domain modules (src/kit, src/zone, src/notifications)
+                   →  storage (src/storage)  →  AsyncStorage / expo-file-system
+                   →  net (src/net)          →  remote APIs
+```
+
+Domain modules never import from `src/app`. `src/kit`, `src/zone`, `src/notifications` and `src/storage` must be importable in a plain Node test environment (no React Native runtime imports except `expo-file-system`/`expo-notifications`, which are mocked in tests).
+
+### 2.3 New dependencies
+
+
+| Package                                                             | Why                    | Install                                                                                  |
+| ------------------------------------------------------------------- | ---------------------- | ---------------------------------------------------------------------------------------- |
+| `expo-notifications`                                                | F5 local notifications | `npx expo install expo-notifications`                                                    |
+| `jest-expo`, `jest`, `@testing-library/react-native`, `@types/jest` | F6 test harness        | `npx expo install jest-expo jest` + `npm i -D @testing-library/react-native @types/jest` |
+
+
+No other dependency may be added in v1.1. If a feature seems to need one, it goes on the backlog, not into this release.
+
+---
+
+## 3. F1 — Versioned local storage layer
+
+### 3.1 Requirements
+
+- **R-STO-1.** All persisted state is read and written through `src/storage/store.ts`. No screen may call `AsyncStorage` directly. The four existing keys (`stormready.plan.v1`, `stormready.theme.dark.v1`, `stormready.weather-alerts.snapshot.v1`, `stormready.area.v2`) are migrated to the new layout.
+- **R-STO-2.** Every stored document carries a `version` field. The store refuses to parse a document whose `version` is newer than the code knows, and surfaces a recoverable error instead of crashing.
+- **R-STO-3.** A corrupted or unparseable document never bricks the app: the store falls back to the default value, keeps the corrupt payload under a `.corrupt` key for diagnosis, and the UI shows a non-blocking banner.
+- **R-STO-4.** Writes are debounced (250 ms) and serialized: a write never interleaves with another write for the same key.
+- **R-STO-5.** Every key is declared in `src/storage/keys.ts` with a `SCHEMA_VERSION` and a `DEFAULT` value. Adding a key requires editing that file — no ad-hoc string keys anywhere else.
+
+### 3.2 API contract
+
+```ts
+// src/storage/store.ts
+export type StoredEnvelope<T> = { version: number; updatedAt: string; data: T };
+
+export async function readStore<T>(key: StoreKey<T>): Promise<T>;
+export function writeStore<T>(key: StoreKey<T>, value: T): void;   // debounced, fire-and-forget
+export async function flushStore(): Promise<void>;                // awaited before app background/quit
+export async function clearAll(): Promise<void>;
+```
+
+```ts
+// src/storage/keys.ts
+export type StoreKey<T> = { name: string; version: number; defaultValue: T; migrate?: (raw: unknown, from: number) => T };
+export const keys = {
+  plan: defineKey<PlanState>('stormready.plan', 2, defaultPlan, migratePlanV1ToV2),
+  theme: defineKey<ThemeState>('stormready.theme', 1, { dark: false }),
+  alertSnapshot: defineKey<AlertSnapshot>('stormready.alert-snapshot', 1, emptySnapshot),
+  areaPack: defineKey<AreaPack>('stormready.area', 2, emptyAreaPack),
+  kit: defineKey<KitState>('stormready.kit', 1, defaultKit),
+  notifications: defineKey<NotificationState>('stormready.notifications', 1, defaultNotifications),
+} as const;
+```
+
+Legacy keys are read once on first launch, migrated, written to the new key, then the legacy key is removed. Legacy key names are kept in `keys.ts` under `LEGACY_KEYS` so the migration is auditable.
+
+### 3.3 Plan schema v2
+
+```ts
+export type PlanState = {
+  onboarded: boolean;
+  household: {
+    people: number;            // 1..20
+    infants: number;           // 0..10  (people counted separately for food/water modifiers)
+    days: number;              // 7..30
+    pets: boolean;
+    petCount: number;          // 0..10
+    hasVehicle: boolean;
+    medicalNeeds: boolean;     // powered medical devices, oxygen, refrigeration
+    county: string;
+    accessibilityNeeds: boolean; // mobility, service animals, caregiver
+  };
+  zone: {
+    value: string;             // e.g. "Zone A" or "Zone 3" or free text
+    source: 'florida-lookup' | 'manual' | 'none';
+    county: string;
+    verifiedAt: string | null; // ISO timestamp
+    notes: string;
+  };
+  destination: { label: string; address: string; transport: string };
+  tasks: Task[];               // v2 task list, see F3
+};
+```
+
+Migration `migratePlanV1ToV2` must:
+
+1. Read the v1 shape (`household`, `tasks`, `destination`).
+2. Carry over `people`, `days`, `pets`, `hasVehicle`, `county`, `destination`.
+3. Default the new fields (`infants: 0`, `petCount: pets ? 1 : 0`, `medicalNeeds: false`, `accessibilityNeeds: false`, `zone` empty, `onboarded: false`).
+4. Preserve v1 task `done` flags for task ids that still exist in v2 (by id), dropping tasks that no longer exist.
+5. Never throw. Any failure returns `defaultPlan` with `onboarded: false`.
+
+### 3.4 Acceptance criteria
+
+- [ ] Given a v1 plan on device, when the app launches after the upgrade, then the household, checklist progress, and destination are intact and the user lands in onboarding.
+- [ ] Given a deliberately corrupted plan payload, when the app launches, then the app starts with defaults, shows a dismissible "saved data could not be read" banner, and does not crash.
+- [ ] Given rapid successive edits to the plan, when the app is backgrounded, then the last edit is persisted (no lost writes).
+- [ ] `grep -rn "AsyncStorage" src/` returns hits only inside `src/storage/` and `src/theme.ts` (theme is migrated to the store in F1).
+
+---
+
+## 4. F2 — First-run onboarding
+
+### 4.1 Requirements
+
+- **R-ONB-1.** On first launch (`plan.onboarded === false`) the root layout redirects into `src/app/onboarding/`. After completion the user lands on the Home tab and `onboarded` is `true`.
+- **R-ONB-2.** Onboarding is four steps: **Welcome** (what the app is / is not), **Household** (people, days, pets, county), **Zone** (F4), **Ready** (summary + permission asks).
+- **R-ONB-3.** The user can skip the whole flow at any time and land on Home with a "Finish setting up" affordance on Home and Prepare.
+- **R-ONB-4.** Location permission is **not** requested during onboarding. It is requested only when the user taps a location action (existing rule in `src/app/(tabs)/updates.tsx` and `map.native.tsx` must not regress).
+- **R-ONB-5.** Onboarding state survives app restarts mid-flow (the current step index is persisted in the plan store under `onboardingStep`).
+- **R-ONB-6.** Every onboarding screen states, in plain language, what leaves the device (e.g. "address lookups are sent to OpenStreetMap") and what does not.
+
+### 4.2 Route contract
+
+```
+src/app/onboarding/_layout.tsx   # Stack, headerShown:false, animation:'slide_from_right'
+src/app/onboarding/index.tsx     # welcome
+src/app/onboarding/household.tsx # household details
+src/app/onboarding/zone.tsx      # zone step (F4)
+src/app/onboarding/ready.tsx     # summary + permissions
+```
+
+Redirect logic in `src/app/_layout.tsx`:
+
+```ts
+const { ready, onboarded } = usePlan();
+useEffect(() => {
+  if (!ready) return;
+  const inOnboarding = segments[0] === 'onboarding';
+  if (!onboarded && !inOnboarding) router.replace('/onboarding');
+  else if (onboarded && inOnboarding) router.replace('/');
+}, [ready, onboarded, segments]);
+```
+
+`inOnboarding` must be derived from the current route segments so a user who is already inside onboarding is never bounced out mid-flow.
+
+### 4.3 Acceptance criteria
+
+- [ ] Fresh install → Welcome appears within 1.5 s of first paint, and the user can reach Home within 4 taps.
+- [ ] Killing and relaunching the app mid-onboarding resumes at the same step.
+- [ ] No location permission dialog appears anywhere in onboarding.
+- [ ] After "Finish", `plan.onboarded === true` and Home renders the household-derived summary (people, days, zone if set).
+
+---
+
+## 5. F3 — Emergency kit calculator
+
+### 5.1 Requirements
+
+- **R-KIT-1.** `src/kit/calculator.ts` is **pure**: no React, no network, no storage. Input is a `Household`, output is a `KitPlan`. It must be fully unit tested.
+- **R-KIT-2.** Every number the calculator produces is labelled with its basis. Where a value is a planning baseline rather than an official figure, the UI must say so and link to the source.
+- **R-KIT-3.** The kit plan is deterministic: the same household always yields the same kit, byte for byte, so it can be shared and compared.
+- **R-KIT-4.** The result is shareable as plain text through the system share sheet (no network required).
+- **R-KIT-5.** The kit list is viewable offline and reflects the current household at all times (recomputed on change, no manual "generate" step).
+
+### 5.2 Data model
+
+```ts
+export type KitCategory = 'water' | 'food' | 'health' | 'documents' | 'home' | 'people' | 'pets' | 'travel' | 'comms';
+
+export type KitLine = {
+  id: string;            // stable id from the catalog
+  category: KitCategory;
+  label: string;         // "Drinking water"
+  quantity: number | null; // null = "one per household" / not countable
+  unit: 'gallons' | 'meals' | 'items' | 'days' | 'sets' | 'each';
+  note: string;          // "1 gallon per person per day", "Ask your clinician"
+  source: string;        // "Ready.gov" | "FEMA" | "Ready.gov (kit)"
+  optional: boolean;
+  appliesWhen: (h: Household) => boolean;
+};
+
+export type KitPlan = {
+  generatedFor: Household;
+  lines: KitLine[];
+  totals: { waterGallons: number; foodMeals: number; days: number };
+  disclaimer: string;
+};
+```
+
+The catalog in `src/kit/catalog.ts` holds the line items with their `appliesWhen` predicate. The calculator evaluates predicates against the household and computes quantities.
+
+### 5.3 Calculation rules (v1.1)
+
+All rules are **planning baselines**, not official requirements, and the UI must present them that way.
+
+
+| Quantity       | Rule                                                                                                                                                                           | Basis label                                        |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------- |
+| Water          | `people × days` gallons, **+ 0.5 gal/day per infant**, **+ 1 gal/day per pet**, **+ 2 gal/day per person flagged `medicalNeeds**` (powered devices, refrigeration)             | "1 gallon per person per day — Ready.gov baseline" |
+| Food           | `(people + infants) × 3` meals per day, total `meals × days`                                                                                                                   | "3 meals per person per day — planning baseline"   |
+| Medicines      | No quantity. One line per household member with a prescription: "Refill prescriptions for each person who takes them"                                                          | "Follow your clinician's instructions"             |
+| Documents      | One line: "Copies of IDs, insurance, deeds"                                                                                                                                    | "Ready.gov"                                        |
+| Communications | One line: "Battery or hand-crank radio" + one per person: "Phone chargers, power bank"                                                                                         | "Ready.gov"                                        |
+| Home           | One line: "Flashlights + batteries", "First-aid kit", "Heavy shoes, work gloves"                                                                                               | "FEMA"                                             |
+| People         | One line per person: "Medication and personal documents for each person", plus one household line: "Out-of-area contact and meeting place"                                     | "Ready.gov"                                        |
+| Pets           | Per pet: "Food and water for N days", "Leash, carrier, ID"; skipped when `pets === false`                                                                                      | "Ready.gov"                                        |
+| Travel         | Per person: "1 gallon of fuel" is **not** estimated; instead "Go-bag with 3 days of essentials", plus one: "Paper map and written route" — skipped when `hasVehicle === false` | "FEMA"                                             |
+| Accessibility  | When `accessibilityNeeds === true`, one line: "Backup power for medical devices, mobility aid, caregiver plan"                                                                 | "Local emergency management"                       |
+
+
+Hard rules:
+
+- `waterGallons` is rounded up to the nearest whole gallon.
+- `days` is clamped to 7..30 (the existing `plan.tsx` clamp stays authoritative).
+- `people` is clamped to 1..20.
+- Optional lines (`optional: true`) are excluded from the "complete" percentage but visible in the list.
+
+### 5.4 UI contract
+
+- `src/app/(tabs)/plan.tsx` gains a **Kit** card: headline totals (`X gallons · Y meals · Z days`), a "See full kit" action, and a "Share kit" action.
+- New route `src/app/kit.tsx` (a modal-style Stack screen outside the tabs) renders the full grouped list with checkboxes. Check state lives in `keys.kit` (`KitState = { checked: string[] }`), persisted via the store.
+- The kit screen must be fully usable offline and must not require the Map tab.
+
+### 5.5 Acceptance criteria
+
+- [ ] Household of 2 people, 7 days, no pets → water line reads "14 gallons" and the basis text "1 gallon per person per day".
+- [ ] Adding an infant raises the food total by `3 × days` and adds `0.5 × days` gallons.
+- [ ] Toggling `pets` off removes every pet line.
+- [ ] "Share kit" produces text containing the totals and every selected line, with no network request (verifiable in airplane mode).
+- [ ] `calculator.ts` has no imports outside its own module — enforced by a lint rule or a CI grep.
+
+---
+
+## 6. F4 — Manual evacuation-zone verification
+
+### 6.1 Requirements
+
+- **R-ZON-1.** Florida keeps the automatic Florida DEM polygon lookup (`src/zone.ts`). Every other US location supports **manual** entry of the zone value the user reads from their local authority, plus a free-text note and a source URL.
+- **R-ZON-2.** A manual zone is always shown with its provenance: the zone value, the county, when it was verified, and a persistent "entered by you" label. The app never presents a manually entered zone as authoritative or current.
+- **R-ZON-3.** The zone card shows a staleness warning when `verifiedAt` is older than 90 days.
+- **R-ZON-4.** The app links out to the user's local emergency-management page. The link list is static per state for the US and per country for Mexico (Mexico has no automated zone lookup; the card states that official sources are required).
+- **R-ZON-5.** The zone value is included in the shared/exported plan and in the kit summary.
+
+### 6.2 Model
+
+```ts
+export type ZoneRecord = {
+  value: string;
+  source: 'florida-lookup' | 'manual' | 'none';
+  county: string;
+  verifiedAt: string | null;
+  notes: string;
+  authorityUrl: string | null;
+};
+```
+
+`src/zone/verification.ts` exports:
+
+```ts
+export function validateZoneInput(raw: string): { ok: boolean; error?: string };
+export function isZoneStale(zone: ZoneRecord, now?: Date): boolean;   // > 90 days
+export function zoneDisplay(zone: ZoneRecord): { label: string; detail: string; tone: 'verified' | 'manual' | 'none' };
+export function authorityUrlFor(region: string, countryCode: 'US' | 'MX'): string | null;
+```
+
+### 6.3 Acceptance criteria
+
+- [ ] A user in Texas can enter "Zone C" for Harris County, sees "Entered by you · verified 19 Oct 2026", and it persists across restarts.
+- [ ] A manual zone older than 90 days shows the staleness note on Home, Prepare, and the exported plan.
+- [ ] A Florida user still gets the automatic polygon lookup, and the record keeps `source: 'florida-lookup'`.
+- [ ] Mexico users see no zone input and see the official-source guidance instead.
+
+---
+
+## 7. F5 — Local reminders
+
+### 7.1 Design decision (read before implementing)
+
+v1.1 ships **local notifications only**. There is no push server and no autonomous background fetching of alerts: a background NWS poll would need `expo-task-manager` background execution, network guarantees we do not have, and it risks implying the app is an alert authority — which the product explicitly is not. Reminders therefore do two things:
+
+1. **Checklist nudge** — a local reminder at a user-chosen time to finish the plan.
+2. **Recheck reminder** — a local reminder suggesting the user open the app and re-run an alert check (the check itself happens in the foreground).
+
+### 7.2 Requirements
+
+- **R-NOT-1.** Notifications are **opt-in** and off by default. The permission prompt appears only after the user explicitly enables reminders in Settings.
+- **R-NOT-2.** Android uses two channels with `Notifications.setNotificationChannelAsync`: `reminders` (importance LOW) and `alerts` (importance DEFAULT). The channels are created at app start so Android 13 shows the OS prompt only when the user enables reminders.
+- **R-NOT-3.** Schedules use `Notifications.scheduleNotificationAsync` with a `SchedulableTriggerInputTypes.TIME_INTERVAL` trigger (verify the exact trigger shape against `https://docs.expo.dev/versions/v58.0.0/sdk/notifications/` before coding).
+- **R-NOT-4.** Scheduled notification identifiers are persisted in `keys.notifications` so the app can cancel and reschedule precisely when settings change, and so a "Reset reminders" action in Settings can clear them all.
+- **R-NOT-5.** A scheduled notification never states or implies that an emergency is happening. Copy must be informational and instruct the user to open the app and check official sources.
+- **R-NOT-6.** If the user revokes permission, the app shows reminders as "off — permission denied in system settings" with a button that opens system settings. `getPermissionsAsync` + `ios.status` must be checked on every app foreground (iOS returns `PROVISIONAL`/`EPHEMERAL` granular states).
+- **R-NOT-7.** On Android 12+ exact alarms are not required. Use inexact triggers so `SCHEDULE_EXACT_ALARM` is never declared. If `getExactAlarmPermissionsAsync` is checked, it is only for diagnostics, never to prompt.
+
+### 7.3 API contract
+
+```ts
+// src/notifications/scheduler.ts
+export type ReminderSettings = {
+  enabled: boolean;
+  checklistNudge: boolean;
+  nudgeHour: number;        // 0..23 local
+  nudgeWeekday: number;     // 0..6
+  recheckReminder: boolean;
+  recheckIntervalHours: number; // 6 | 12 | 24
+};
+
+export async function ensureChannels(): Promise<void>;
+export async function requestNotificationPermission(): Promise<boolean>;
+export async function applyReminderSchedule(settings: ReminderSettings): Promise<void>;
+export async function cancelAllReminders(): Promise<void>;
+export async function getReminderStatus(): Promise<{ allowed: boolean; scheduledCount: number }>;
+```
+
+### 7.4 Acceptance criteria
+
+- [ ] Reminders are off on a fresh install and no permission dialog appears until the user enables them in Settings.
+- [ ] Enabling a daily nudge at 18:00 schedules exactly one notification and the identifier survives an app restart.
+- [ ] Changing the nudge time cancels the old schedule and creates a new one (no duplicates).
+- [ ] Revoking the permission in system settings and returning to the app shows the "permission denied" state and no crashes or unhandled rejections.
+
+---
+
+## 8. F6 — Accessibility, tests, CI, OTA
+
+### 8.1 Accessibility requirements
+
+- **R-A11Y-1.** Every interactive element has an `accessibilityRole` and a meaningful `accessibilityLabel`; decorative glyphs (the current `⌂ ✓ ⌖ ! ⚙` tab glyphs) are marked `accessibilityElementsHidden` or given a label.
+- **R-A11Y-2.** Touch targets are at least 44×44 dp. The current tab bar items and the checklist rows satisfy this after the v1.1 changes.
+- **R-A11Y-3.** All animation respects `useReducedMotion()`. The existing `MotionPressable` and `Action` patterns are the standard; new motion must use `withTiming` under 300 ms, `transform`/`opacity` only, and `ReduceMotion.System`.
+- **R-A11Y-4.** Body text meets WCAG AA contrast (4.5:1) in **both** light and dark palettes. `src/theme.ts` tokens get a contrast test that fails CI on regression.
+- **R-A11Y-5.** Async status changes (loading, saved, error) are announced through `accessibilityLiveRegion` / `accessibilityRole="alert"`.
+- **R-A11Y-6.** Font scaling is respected (`allowFontScaling` stays default true) but capped at `maxFontSizeMultiplier={1.4}` on screens with fixed-height components (progress bars, map overlays) to avoid clipping. Text-only screens do not cap.
+- **R-A11Y-7.** Progress indicators expose `accessibilityRole="progressbar"` with `accessibilityValue={{ min, max, now }}` (already the pattern in `index.tsx` and `plan.tsx`).
+
+### 8.3 Testing requirements
+
+Test harness: `jest-expo` preset, `@testing-library/react-native`, `fetch` mocked per test.
+
+
+| Target                           | Kind                                      | Minimum cases |
+| -------------------------------- | ----------------------------------------- | ------------- |
+| `src/kit/calculator.ts`          | unit                                      | 12            |
+| `src/storage/migrate.ts`         | unit                                      | 6             |
+| `src/storage/store.ts`           | unit (AsyncStorage mocked)                | 6             |
+| `src/zone/verification.ts`       | unit                                      | 6             |
+| `src/notifications/scheduler.ts` | unit (expo-notifications mocked)          | 6             |
+| `src/offline-router.ts`          | unit (search + route on a 12-way fixture) | 8             |
+| `src/plan.tsx` reducer           | unit                                      | 6             |
+| `src/app/(tabs)/plan.tsx`        | component (render, toggle task, kit card) | 5             |
+| `src/app/onboarding/*`           | component (render + advance)              | 6             |
+
+
+- **R-TST-1.** `npm test` runs the whole suite headlessly and passes in CI.
+- **R-TST-2.** Coverage thresholds: ≥ 80 % statements for `src/kit`, `src/storage`, `src/zone`; ≥ 60 % overall for `src/`.
+- **R-TST-3.** `src/plan.tsx` is refactored so the state transitions are a **pure reducer** (`planReducer(state, action)`) exported and testable; the provider becomes a thin wrapper. This is a prerequisite for the kit feature and the tests above.
+- **R-TST-4.** No test may hit the network. `fetch` is mocked globally in the Jest setup.
+
+### 8.4 CI requirements
+
+`.github/workflows/ci.yml` on every push and PR:
+
+1. `npm ci`
+2. `npx expo-doctor` (must be clean)
+3. `npx expo lint`
+4. `npx tsc --noEmit`
+5. `npm test -- --ci`
+6. `npx expo export --platform web` (catches bundling/import errors) — optional in CI, required before a release tag
+
+Release workflow `.github/workflows/release.yml` (manual dispatch): `eas build --profile preview --platform android` (APK) and `--platform ios` (simulator/dev), then `eas update --channel preview` for JS-only fixes.
+
+### 8.5 OTA rules
+
+- `expo-updates` is already a dependency. Configure channels: `development`, `preview`, `production` (in `app.json` → `updates.url` + `runtimeVersion` policy = `appVersion`).
+- **JS-only** fixes ship via `eas update`; **anything touching native config, permissions, or dependencies** requires a new build.
+- Every OTA update ships with a one-line changelog entry in `docs/CHANGELOG.md`.
+
+---
+
+## 9. Network and offline behavior
+
+- **R-NET-1.** All remote calls go through `src/net/http.ts`:
+
+```ts
+export async function requestJson<T>(url: string, options: RequestOptions): Promise<T>;
+export type RequestOptions = {
+  method?: 'GET' | 'POST';
+  body?: string;
+  headers?: Record<string, string>;
+  timeoutMs?: number;      // default 15000
+  retries?: number;        // default 1 (GET only)
+  userAgent: string;       // required — see below
+  signal?: AbortSignal;
+};
+```
+
+- **R-NET-2.** Every request sets an identifying `User-Agent` (`StormReady/1.1 (<platform>)` plus purpose). `api.weather.gov` and `nominatim.openstreetmap.org` require this and will throttle or block anonymous clients without it.
+- **R-NET-3.** Retries use exponential backoff (1 s, 4 s) with jitter, and **only for idempotent GETs**. Overpass POSTs are never retried automatically (the service is rate-limited and duplicates cost quota).
+- **R-NET-4.** Timeouts abort the request and surface a human message: "The service took too long. Try again when you have a stronger connection."
+- **R-NET-5.** Failure messages never blame the user and never claim an emergency state. They name the failed service and the fallback ("Check official sources below").
+- **R-NET-6.** Every screen that can run offline must have an explicit offline affordance: the alert snapshot, the saved area pack, the kit list, and the field guide.
+- **R-NET-7.** Existing integrations keep their current endpoints and semantics. Do not change data sources in v1.1:
+
+
+| Purpose                | Service                                           | Notes                                                                |
+| ---------------------- | ------------------------------------------------- | -------------------------------------------------------------------- |
+| US shelters            | FEMA NSS ArcGIS FeatureServer                     | paginated with `resultOffset` until `exceededTransferLimit` is false |
+| MX shelters            | Overpass (`emergency=shelter`, `amenity=shelter`) | community data, may be stale                                         |
+| US alerts              | `api.weather.gov/alerts/active`                   | GeoJSON; snapshot saved locally                                      |
+| Address lookup         | Nominatim (`/search`)                             | `countrycodes=us,mx`                                                 |
+| Offline roads + places | Overpass                                          | 50 MB network cap, 20 MB destination-index cap                       |
+| Florida zones          | Florida DEM ArcGIS FeatureServer                  | polygon intersect on a point                                         |
+| Base map tiles         | OpenFreeMap styles (liberty / dark)               | MapLibre offline packs, 3000 tile cap                                |
+
+
+- **R-NET-8.** The existing size caps (3000 tiles, 50 MB pack) remain enforced, and the UI must state the cap before the user starts a large download.
+
+---
+
+## 10. Design system rules
+
+- **R-UI-1.** Reuse the tokens in `src/theme.ts`. No hard-coded colors in screens — use `useAppTheme()` and `colors.*`. Extend `lightColors`/`darkColors` **together**; both palettes must contain the same keys.
+- **R-UI-2.** Extend `src/ui.tsx` rather than duplicating components. New shared components added in v1.1:
+  - `Section` — titled group with optional action.
+  - `NumberStepper` — label, value, −/+ buttons, `min`/`max`/`step` clamping (used by onboarding and the kit).
+  - `CheckboxRow` — accessible checkbox with label + detail (replaces the ad-hoc checkbox markup in `plan.tsx`).
+  - `Banner` — inline notice with tone (`info` | `warn` | `error` | `success`), optional action, optional dismiss.
+  - `Stat` — big number + label + basis line (used by the kit totals).
+- **R-UI-3.** Existing screen layouts stay recognizable. v1.1 adds, it does not redesign: Home keeps the brand row, progress card, and shortcuts.
+- **R-UI-4.** Motion: entrances are `FadeIn`/`FadeOut` ≤ 150 ms with `ReduceMotion.System`; presses use `MotionPressable`; sheets use `withSpring` (damping 22, stiffness 180).
+- **R-UI-5.** Long text must be selectable where it is reference material (the field guide).
+- **R-UI-6.** Every list that can grow long (kit lines, shelters, alerts) uses the existing `Card` + `Row` composition, not a new list primitive.
+
+---
+
+## 11. Performance budget
+
+
+| Metric                               | Budget                         | How it is verified                                                                                                 |
+| ------------------------------------ | ------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
+| Cold start → first contentful screen | < 2.5 s on a mid-range Android | manual timing on device, recorded in the release checklist                                                         |
+| Onboarding step transition           | < 200 ms                       | manual                                                                                                             |
+| Kit recompute on household change    | < 16 ms (one frame)            | unit test timing assertion in CI                                                                                   |
+| Plan store read                      | < 50 ms                        | unit test with mocked AsyncStorage                                                                                 |
+| Offline route computation            | < 800 ms for a saved area      | manual; must not block a frame — compute after `InteractionManager.runAfterInteractions` and show a progress state |
+| Offline pack save                    | ≤ 3 min on 4G                  | manual on the largest supported area                                                                               |
+| Memory during map navigation         | < 400 MB                       | Android profiler, recorded in the release checklist                                                                |
+
+
+If the route computation exceeds the budget on the largest fixture, move it off the JS thread using `react-native-worklets` — but verify that API against the SDK 58 docs first; it is not a blind requirement.
+
+---
+
+## 12. Privacy and security
+
+- **R-PRV-1.** No account, no analytics, no advertising SDK, no crash reporter in v1.1. The Settings copy already promises this; the build must not break that promise.
+- **R-PRV-2.** The only data that leaves the device is: a geolocation point (only after the user taps a location action), an address string typed by the user (sent to Nominatim), and Overpass/FEMA/NWS query parameters. Each surface must disclose this next to the action.
+- **R-PRV-3.** "Erase saved plan from this device" clears every key in the store **and** the saved area pack, the downloaded PDF, the road network file, and cancels all scheduled notifications.
+- **R-PRV-4.** Exported plans (share sheet) contain only the user's own household data. The export format is JSON with `exportedAt`, `household`, `tasks`, `destination`, `zone`, `kit`.
+- **R-PRV-5.** No secret keys, API tokens, or certificates are committed to the repo.
+
+---
+
+## 13. Work packages
+
+Each work package is independently shippable and independently testable. Dependencies are hard: do not start a package before its dependency lands.
+
+
+| WP    | Title                       | Scope                                                                                                         | Depends on   | Est. | Exit criteria                                                      |
+| ----- | --------------------------- | ------------------------------------------------------------------------------------------------------------- | ------------ | ---- | ------------------------------------------------------------------ |
+| WP-01 | Storage foundation          | `src/storage/*`, migrations, theme + alert snapshot + area pack migrated, `src/plan.tsx` reduced to a reducer | —            | 3 d  | R-STO-1..5 pass; `npm test` green; v1 data survives an upgrade     |
+| WP-02 | Test + CI harness           | Jest config, mocks, first tests for the reducer, GitHub Actions workflow                                      | WP-01        | 2 d  | `npm test` runs in CI on a PR; `expo-doctor` clean                 |
+| WP-03 | Kit domain                  | `src/kit/*` — catalog, calculator, formatter + full unit tests                                                | WP-01        | 3 d  | 12+ calculator cases; pure-module rule enforced                    |
+| WP-04 | Kit UI                      | Kit card on Prepare, `src/app/kit.tsx`, share sheet, checkbox persistence                                     | WP-03, WP-01 | 3 d  | Totals correct; share works offline                                |
+| WP-05 | Onboarding                  | Route group, redirect logic, household step, skip + resume                                                    | WP-01        | 3 d  | R-ONB-1..6 pass; no location prompt                                |
+| WP-06 | Zone verification           | `src/zone/verification.ts`, zone step + zone card on Home/Prepare, staleness                                  | WP-05        | 2 d  | R-ZON-1..5 pass                                                    |
+| WP-07 | Reminders                   | `expo-notifications`, channels, scheduler, Settings UI                                                        | WP-01        | 3 d  | R-NOT-1..7 pass on a physical device                               |
+| WP-08 | Accessibility pass          | Labels, roles, targets, live regions, font scaling, contrast tests                                            | WP-04..07    | 3 d  | R-A11Y-1..7 pass; screen-reader walkthrough done                   |
+| WP-09 | iOS parity                  | `app.json` ios block, notification plugin, map on iOS, eas profiles                                           | WP-07        | 4 d  | iOS dev build runs all tabs                                        |
+| WP-10 | Offline + network hardening | `src/net/http.ts`, migrate existing fetches, error copy, offline states                                       | WP-01        | 3 d  | All calls go through `http.ts`; timeouts verified in airplane mode |
+| WP-11 | Release engineering         | OTA channels, changelog, release checklist, production build                                                  | WP-08..10    | 2 d  | APK + iOS dev build; OTA applied to the preview channel            |
+
+
+Total engineering estimate: ~31 working days for one engineer, which maps to the four milestones in `docs/spec/02-project-plan.md`.
+
+---
+
+## 14. Definition of done
+
+A work package is done when **all** of the following are true:
+
+1. The code compiles: `npx tsc --noEmit` clean.
+2. Lint clean: `npx expo lint` clean.
+3. Tests pass: `npm test` green, new logic covered per §8.3.
+4. `npx expo-doctor` reports no incompatible dependency.
+5. The requirement IDs from this spec that the package implements are met, each with a test or a documented manual verification step.
+6. Light **and** dark themes are visually verified on a device.
+7. The user-visible copy follows the tone rules (§15.4) and any new legal/disclaimer text is reviewed.
+8. No `console.log` left behind; no dead code; no commented-out blocks.
+9. PR description lists: what changed, which requirement IDs it satisfies, how it was verified, and what was deliberately left out.
+
+---
+
+## 15. Operating rules for agents
+
+### 15.1 Commands
+
+```bash
+npm install
+npx expo start                 # dev server
+npx expo run:android           # development build (MapLibre needs it)
+npx expo lint
+npx tsc --noEmit
+npm test
+npx expo-doctor
+npx expo install <package>    # always, never npm/yarn/pnpm add
+npx eas-cli@latest build --profile preview --platform android
+npx eas-cli@latest update --channel preview
+```
+
+### 15.2 Repo rules that are not negotiable
+
+- Never edit `android/` or `ios/` by hand; they are generated.
+- Never add a dependency without `npx expo install`.
+- Never hard-code a color; use `src/theme.ts` tokens.
+- Never put a component, hook, or utility inside `src/app/` (except route files and route-local components that are only used by that route).
+- Never make the app request location at launch.
+- Never add a cloud backend, analytics, or crash reporting in v1.1.
+
+### 15.3 Freshness
+
+Before using an Expo API you have not used in this repo, fetch `https://docs.expo.dev/versions/v58.0.0/<page>.md`. If the doc contradicts what you remember, the doc wins. Record the doc URL in the PR description.
+
+### 15.4 Copy rules (safety-critical product)
+
+- StormReady is a **planning tool**, not an alert authority. Every surface that shows alert-like information repeats: "Check official sources for current orders."
+- Never state or imply that an area is safe, that a shelter is open, or that a route is clear of closures. The existing shelter copy ("A facility in an offline list is not proof that it is open or has space") is the model.
+- Numbers produced by the kit calculator are labelled as planning baselines with a source.
+- No alarmist language, no emoji in emergency-facing copy, no exclamation-mark stacking.
+
+### 15.5 Definition of "agent-ready task"
+
+A task is ready for an agent when it maps to exactly one work package, names the requirement IDs it satisfies, and lists the files it may touch. Anything that needs a product decision (a new default, a copy change, a scope addition) is escalated, not guessed.
+
+---
+
+## 16. Explicitly deferred (v1.2 backlog)
+
+- Offline alert snapshot refresh without opening the app (needs `expo-task-manager` + background execution).
+- Push notifications with a StormReady server (explicitly rejected for v1.1).
+- Multi-household / multi-profile support.
+- Spanish and Portuguese UI localization (content translation only, no UI strings yet).
+- Sharing the kit as a PDF (share text ships in v1.1; PDF needs a printing pipeline).
+- Automated zone lookup beyond Florida.
+- Mexico shelter data beyond community OSM listings.
+- Household sharing / sync between devices.
+- Wearable and home-screen widgets.
+
+ 

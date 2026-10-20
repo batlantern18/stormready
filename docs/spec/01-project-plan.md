@@ -1,0 +1,320 @@
+# StormReady v1.1 "Ready Kit" — Project Plan
+
+**Release:** v1.1 "Ready Kit"
+**Window:** Mon 26 Oct 2026 → Fri 12 Feb 2027 (16 weeks)
+**Status:** Approved for execution
+**Companion doc:** `docs/spec/01-technical-build-spec.md` (the implementation contract)
+
+---
+
+## 1. Executive summary
+
+StormReady v1.0 is a working, local-first preparedness app for the US and Mexico: household plan, checklist, offline map packs, offline routing, shelter lookup, and NWS alert checks. What it does **not** yet do is the one thing a new user opens the app for: hand them a concrete, personalized **emergency kit** and a **verified evacuation zone**.
+
+v1.1 "Ready Kit" closes that gap. It adds four user-facing capabilities — first-run onboarding, a household-driven kit calculator with a shareable checklist, manual evacuation-zone verification for every US county, and opt-in local reminders — on top of a versioned storage layer that makes the data trustworthy and migratable. It also closes the quality gaps that block a broader release: no tests, no CI, Android-only, and accessibility that has not been formally audited.
+
+The bet: **preparedness is a checklist, not an app.** A user should be able to install StormReady, answer five questions, and leave with a printable, personalized list of what to buy and where to go. Everything else in v1.1 exists to make that outcome reliable.
+
+| | v1.0 (today) | v1.1 (this release) |
+|---|---|---|
+| First run | Lands on Home with defaults | 4-step onboarding → personalized plan |
+| Kit | One line: "set aside drinking water" | Full personalized, shareable kit list with quantities and sources |
+| Zone | Florida only, automatic | Every US county: automatic (FL) or manual verification with provenance |
+| Reminders | None | Opt-in local reminders (checklist nudge, recheck prompt) |
+| Storage | Scattered AsyncStorage keys | Versioned store with migrations and corruption recovery |
+| Quality | No tests, no CI, Android only | Unit + component tests, CI gates, iOS parity build |
+| Privacy | Local-only, no accounts | Unchanged — local-only, no accounts, no analytics |
+
+---
+
+## 2. Product intent and principles
+
+**North star:** a household completes a usable preparedness plan in under 5 minutes, offline, without an account.
+
+1. **Local first, always.** The app is fully useful with no connection. Network is an enhancement, never a precondition.
+2. **The app plans; the authority decides.** StormReady never states that a zone, shelter, or route is safe or current. It shows what you entered, where it came from, and when it was verified.
+3. **Plain language, calm tone.** No fear marketing, no alarmist copy, no fake urgency.
+4. **Small steps, visible progress.** Every screen shows how far the user has come and what the next step is.
+5. **Privacy is a feature, stated out loud.** No accounts, no servers, no tracking. The Settings screen says so in the first screenful.
+
+### 2.1 Personas
+
+| Persona | Situation | What v1.1 must deliver |
+|---|---|---|
+| **Marisol (Tampa, US)** | Family of 4 with a dog, wants a zone before the next hurricane | Zone from the county map, a kit sized for 4 people + 1 dog, a list she can take to the store |
+| **Dev (Monterrey, MX)** | Rents, no car, plans with his sister | Kit that reflects no vehicle, official-source guidance for Mexico, a plan he can export |
+| **Rita (Lubbock, US)** | 68, insulin, alone during a freeze | Kit line for powered medical needs, a place to record her out-of-area contact, an exportable plan for a neighbor |
+| **The prepared parent (Denver, US)** | Already has a kit, uses the app weekly | A nudge reminder, an updated alert check, no nagging, no account |
+
+### 2.2 Non-goals for v1.1
+
+No accounts, no cloud sync, no analytics, no push-notification server, no autonomous background alert polling, no paid tier, no live traffic, no automated Mexican alerts, no App Store submission (iOS ships as an internal/parity build).
+
+---
+
+## 3. Goals and success measures
+
+| # | Goal | Measure | Target (by 12 Feb 2027) |
+|---|---|---|---|
+| G1 | Users leave onboarding with a populated plan | % of new installs completing onboarding | ≥ 55 % |
+| G2 | A concrete kit exists | % of users who open the kit list within 7 days | ≥ 40 % |
+| G3 | The plan is transportable | Kit lists shared (share sheet invoked) | ≥ 15 % of kit viewers |
+| G4 | Zone confidence | % of US users with a zone recorded (auto or manual) | ≥ 35 % |
+| G5 | Engagement without nagging | Weekly plan opens per active user | ≥ 1.8 |
+| G6 | Reliability | Crash-free sessions in preview builds | ≥ 99.5 % |
+| G7 | Quality floor | CI green, coverage thresholds met, zero open Sev-1 defects at release | 100 % |
+
+**Measurement caveat:** v1.1 ships **no analytics**. G1–G5 are measured by a small, opt-in, on-device counter that only tracks feature usage counts locally and can be exported by the user from Settings (never transmitted). If the user declines, the metrics simply do not exist. This is a deliberate trade: privacy promise over perfect numbers.
+
+### 3.1 Release gates (all must hold on release day)
+
+- All §13 work packages closed; no open Sev-1 or Sev-2 defects.
+- `expo lint`, `tsc --noEmit`, `npm test`, `expo-doctor` all clean on the release commit.
+- APK and iOS development builds install and pass the release checklist on physical devices.
+- Every legal/disclaimer string reviewed by the content reviewer (see §9).
+- Rollback plan tested: a previous OTA update can be re-applied or reverted.
+
+---
+
+## 4. Milestones and timeline
+
+| Milestone | Dates | Contents | Exit criteria |
+|---|---|---|---|
+| **M0 — Foundation** | Mon 26 Oct → Fri 6 Nov 2026 (2 wks) | WP-01 storage + migrations, WP-02 test & CI harness | Existing v1 data survives the upgrade; CI runs on every PR |
+| **M1 — Kit & Onboarding (internal beta)** | Mon 9 Nov → Fri 4 Dec 2026 (4 wks) | WP-03 kit domain, WP-04 kit UI, WP-05 onboarding | A tester can install, complete onboarding, and share a correct kit list; ≥ 5 internal testers signed off |
+| **M2 — Zone & Reminders (beta)** | Mon 7 Dec 2026 → Fri 8 Jan 2027 (5 wks) | WP-06 zone verification, WP-07 local reminders, WP-10 network hardening | Manual zone works end to end; reminders fire and cancel correctly on a physical device |
+| **M3 — Hardening & Parity** | Mon 11 Jan → Fri 5 Feb 2027 (4 wks) | WP-08 accessibility pass, WP-09 iOS parity, WP-11 release engineering | Accessibility audit clean; iOS build runs all five tabs |
+| **GA — v1.1 release** | Fri 12 Feb 2027 | Staged rollout to preview channel, APK distribution, changelog | Release gates in §3.1 all green |
+
+**Contingency:** 10 working days of buffer sits between M3 and GA for scope that slips. If a milestone slips by more than a week, the cut order is: iOS parity (M3) → reminders (M2) → zone staleness polish. Kit + onboarding never get cut; they are the release's reason to exist.
+
+**Why February 2027:** it lands ahead of the 2027 hurricane season with enough lead time for a March–April refresh, and it keeps the 16-week window inside one fiscal quarter with no holiday collision (M2 spans the holidays deliberately — holidays are low-risk weeks for an offline-first app and are planned as such).
+
+---
+
+## 5. Workstreams
+
+| Workstream | Owner | Scope | WPs |
+|---|---|---|---|
+| **WS-A Platform & Data** | Mobile engineer | Storage, migrations, network layer, offline behavior | WP-01, WP-10 |
+| **WS-B Product features** | Mobile engineer | Kit domain + UI, onboarding, zone verification, reminders | WP-03..WP-07 |
+| **WS-C Quality & Platform** | Mobile engineer + QA | Tests, CI, accessibility, iOS parity, OTA | WP-02, WP-08, WP-09, WP-11 |
+| **WS-D Content & compliance** | Content reviewer (part-time) | Kit catalog sourcing, disclaimer copy, Spanish/MX guidance, source links | All |
+| **WS-E Design** | Design (part-time) | Kit screen layout, onboarding screens, banner/stat components, dark-theme review | WP-04, WP-05, WP-08 |
+
+### 5.1 Content & compliance review (WS-D) — non-negotiable
+
+This is a safety-adjacent product. Every user-facing string that states a fact about preparedness (quantities, sources, zone meanings, shelter expectations) is reviewed before it ships.
+
+- Kit quantities are planning baselines. Each line carries its basis and a source link.
+- No copy asserts that a shelter is open, that a zone is current, or that a route is clear.
+- Mexico guidance points to Protección Civil, SMN, and CENAPRED; the app never implies automated coverage it does not have.
+- Review cadence: every PR that touches copy in `src/app/**` or `src/kit/catalog.ts` needs a content review; batched to twice weekly to avoid blocking the engineering flow.
+
+---
+
+## 6. Backlog
+
+Priority: **M** = must for v1.1, **S** = should, **C** = could, **L** = later (v1.2).
+
+| ID | Item | P | Est. | Work package |
+|---|---|---|---|---|
+| SR-01 | Versioned storage store with schema versions | M | 3 d | WP-01 |
+| SR-02 | Plan schema v2 + v1 migration | M | 2 d | WP-01 |
+| SR-03 | Corruption recovery + non-blocking banner | M | 1 d | WP-01 |
+| SR-04 | Theme + alert snapshot + area pack migrated to the store | M | 1 d | WP-01 |
+| SR-05 | Jest harness, fetch mock, CI workflow | M | 2 d | WP-02 |
+| SR-06 | Pure plan reducer (extracted from `src/plan.tsx`) | M | 1 d | WP-01 |
+| SR-07 | Kit catalog (items, categories, sources) | M | 2 d | WP-03 |
+| SR-08 | Kit calculator with water/food/medicine/pets/travel rules | M | 2 d | WP-03 |
+| SR-09 | Kit totals card on Prepare | M | 1 d | WP-04 |
+| SR-10 | Full kit screen with checkboxes | M | 2 d | WP-04 |
+| SR-11 | Share kit as text (offline) | M | 0.5 d | WP-04 |
+| SR-12 | Onboarding route group + redirect | M | 2 d | WP-05 |
+| SR-13 | Household step (people, infants, days, pets, vehicle, medical, accessibility) | M | 1 d | WP-05 |
+| SR-14 | Onboarding skip + resume + "finish setup" affordance | M | 1 d | WP-05 |
+| SR-15 | Manual zone entry with county, date, notes | M | 1.5 d | WP-06 |
+| SR-16 | Zone staleness (> 90 days) warnings | S | 0.5 d | WP-06 |
+| SR-17 | Zone provenance labels everywhere | M | 0.5 d | WP-06 |
+| SR-18 | Local reminder scheduler + channels | M | 2 d | WP-07 |
+| SR-19 | Reminder settings in Settings (time, day, interval) | M | 1 d | WP-07 |
+| SR-20 | Notification permission state handling (iOS granular statuses) | M | 0.5 d | WP-07 |
+| SR-21 | Shared `http.ts` with timeout, backoff, user-agent | M | 1.5 d | WP-10 |
+| SR-22 | Migrate existing fetches to `http.ts` | M | 1 d | WP-10 |
+| SR-23 | Accessibility: labels, roles, targets, live regions, font scaling | M | 2 d | WP-08 |
+| SR-24 | Contrast test for light/dark palettes | M | 0.5 d | WP-08 |
+| SR-25 | iOS: app.json block, location string, notification plugin | M | 1 d | WP-09 |
+| SR-26 | iOS: verify map, offline packs, and sheets | M | 2 d | WP-09 |
+| SR-27 | iOS: WebView PDF preview check | M | 0.5 d | WP-09 |
+| SR-28 | EAS profiles: development, preview (APK), production (both platforms) | M | 0.5 d | WP-09 |
+| SR-29 | OTA channels + runtime version policy | M | 0.5 d | WP-11 |
+| SR-30 | Release checklist + changelog process | M | 0.5 d | WP-11 |
+| SR-31 | Kit export in the shared plan JSON | S | 0.5 d | WP-04 |
+| SR-32 | On-device, opt-in usage counters (exportable) | S | 1 d | WP-11 |
+| SR-33 | Offline kit card on Home ("your kit at a glance") | C | 1 d | WP-04 |
+| SR-34 | Spanish-language copy pass for MX users | S | 2 d | WS-D |
+| SR-35 | Print/PDF kit export | L | 3 d | v1.2 |
+| SR-36 | Background alert refresh (task manager) | L | 5 d | v1.2 |
+
+---
+
+## 7. Dependencies
+
+### 7.1 Internal
+
+```
+SR-01 ─┬─> SR-02 ─> SR-03
+        ├─> SR-06 ─> SR-05
+        └─> SR-18 ─> SR-19 ─> SR-20
+SR-07 ─> SR-08 ─> SR-09 ─> SR-10 ─> SR-11
+SR-12 ─> SR-13 ─> SR-14
+SR-15 ─> SR-16, SR-17
+SR-21 ─> SR-22
+SR-23 ─> (all UI features)
+SR-25 ─> SR-26 ─> SR-27
+```
+
+### 7.2 External services (no contract, no SLA — design for failure)
+
+| Service | Used for | Failure mode | Mitigation |
+|---|---|---|---|
+| `api.weather.gov` | US alerts | 5xx / slow | Snapshot saved locally; error copy points to official sources |
+| FEMA NSS ArcGIS | US shelters | Service outage | Show last saved list + "verify before you travel" |
+| Overpass API | MX shelters, offline roads, offline places | Rate limits (429), timeouts | No automatic retry on POST; explicit "try a smaller area" for downloads |
+| Nominatim | Address lookup | 403 on heavy use | Descriptive User-Agent; no automatic retry |
+| OpenFreeMap | Vector tiles, styles | Style 404 | Style constants are local; offline packs keep working |
+| Florida DEM ArcGIS | FL zone polygons | Service outage | Manual zone entry always available |
+| Expo/EAS | Builds, OTA | Build failures, quota | Keep `preview` APK profile; JS-only fixes via OTA |
+| App stores (future) | Distribution | Review rejections | No store submission in v1.1 scope |
+
+**Hard rule:** every one of these may fail at any moment. No screen may block on them, and no feature may become unusable when one is down.
+
+### 7.3 People and approvals
+
+| Need | Who | Cadence |
+|---|---|---|
+| Content/compliance review | Content reviewer | 2× weekly batch |
+| Design review of new screens | Designer | At M1, M2, M3 checkpoints |
+| Device testing (physical Android + iOS) | QA | Weekly from M1 |
+| Release approval | Product owner | At each milestone exit |
+
+---
+
+## 8. Risk register
+
+| ID | Risk | Likelihood | Impact | Mitigation | Owner |
+|---|---|---|---|---|---|
+| R1 | Storage migration loses user data | Low | Critical | Migration is pure and unit-tested against a captured v1 fixture; write to the new key **before** deleting the legacy key; keep the legacy key for one release | WS-A |
+| R2 | Kit quantities read as official requirements | Medium | High | Every line carries a basis + source; content review of the catalog; "planning baseline" wording in the UI | WS-D |
+| R3 | Reminders feel like false alarm alerts | Medium | High | Copy review, LOW importance channel, reminders are opt-in and clearly "open the app to check" | WS-D |
+| R4 | iOS map parity gaps discovered late | Medium | Medium | iOS verification pulled forward into M2 (a spike at the start of M2, not in M3) | WS-C |
+| R5 | Third-party service rate-limits during testing | High | Low | Dedicated User-Agents, serialized test usage, no automated Overpass retries | WS-A |
+| R6 | Scope creep from "just one more feature" | High | Medium | Backlog discipline: new asks go to v1.2 (SR-35, SR-36) unless they displace an M-item | PO |
+| R7 | Accessibility findings cluster in M3 | Medium | Medium | Accessibility is applied during feature work (WP-08 patterns are in the component library from M0) | WS-C |
+| R8 | Single-engineer bus factor | Medium | Medium | Spec-first workflow (this document + the technical spec) so work is resumable; every PR documents its requirement IDs | PO |
+| R9 | Testing data hits real APIs | Medium | Medium | Global fetch mock in Jest; a device-testing checklist that forbids production endpoints during QA | WS-C |
+| R10 | Offline behavior regresses silently | Medium | High | Airplane-mode pass is part of the release checklist for every milestone | QA |
+
+---
+
+## 9. QA and test plan
+
+### 9.1 Test layers
+
+| Layer | Tool | Coverage |
+|---|---|---|
+| Unit | Jest (`jest-expo`) | Kit calculator, migrations, store, zone validation, reminder scheduler, route/search logic on fixtures |
+| Component | React Native Testing Library | Prepare screen (toggle + kit card), onboarding steps, kit screen |
+| Integration (device) | Manual checklist | Location flow, map pack save, offline route, reminders, exports |
+| Visual | Screenshots, light + dark | New screens in both themes, small phone (5") and large |
+| Accessibility | Screen reader walkthrough (TalkBack / VoiceOver), font scale 130 %, reduced motion on | New screens |
+| Offline | Airplane mode | Kit, plan, field guide, saved area, alert snapshot |
+
+### 9.2 Device matrix
+
+| Device | OS | Priority |
+|---|---|---|
+| Samsung Galaxy A-series (mid-range Android) | Android 13–15 | P0 |
+| Pixel 7a | Android 14 | P0 |
+| Low-end Android (≤ 3 GB RAM) | Android 11 | P1 |
+| iPhone 13 | iOS 18 | P1 |
+| iPhone SE (small screen) | iOS 17 | P1 |
+
+### 9.3 Per-milestone regression checklist (excerpt)
+
+1. Launch → Home renders the progress card with the saved checklist state.
+2. Kill and relaunch → plan, theme, zone, and kit checkboxes all persist.
+3. Airplane mode → Home, Prepare, Kit, and the field guide all work; alerts show the saved snapshot.
+4. Toggle a checklist item → progress updates on Home immediately.
+5. Save an area → pack downloads, shelters load, an offline route can be calculated to a pinned point.
+6. Enable a reminder → a notification arrives at the chosen time; change the time → the old one is cancelled.
+7. Enable "reduce motion" in system settings → no scale animations, all interactions still work.
+8. Dark theme → every new screen is legible and consistent with the existing tokens.
+
+---
+
+## 10. Release and rollout
+
+| Stage | Audience | Channel | Entry criteria | Exit criteria |
+|---|---|---|---|---|
+| **Dev** | Engineering | `development` | CI green | — |
+| **Internal alpha** | Team + 10 external testers | `preview` (APK) | M1 exit | ≥ 5 tester sign-offs, no Sev-1 |
+| **Beta** | ~100 invited users | `preview` + OTA | M2 exit | Crash-free ≥ 99 %, ≥ 30 % of kit viewers open a kit |
+| **Release candidate** | Production-shaped build | `production` | M3 exit | Full release checklist signed off |
+| **GA** | Public APK distribution | `production` | All §3.1 gates | Monitoring for 14 days, then v1.2 planning |
+
+**Rollback:** JS-only regressions roll back with `eas update --rollback` to the previous runtime. Native regressions require a new build, so native changes are held to the final two weeks of the release window.
+
+**Store channels:** v1.1 is distributed as an APK (the `preview` profile already produces an APK) plus an internal iOS build. No store submission in this release.
+
+---
+
+## 11. Metrics and reporting
+
+- **Weekly** (Fridays): workstream status, milestone burn-up, blocked items, risk movement.
+- **Per milestone**: exit-criteria review with sign-off from the product owner.
+- **Post-release (14 days)**: crash-free rate, onboarding completion (from opt-in local counters), kit engagement, qualitative feedback from 5 testers.
+- **Retrospective at GA**: what was cut, what slipped, and the v1.2 list.
+
+---
+
+## 12. Budget and assumptions
+
+| Item | Assumption |
+|---|---|
+| Engineering | 1 mobile engineer full-time for 16 weeks (~31 working days of delivery, matching WP estimates) |
+| Design | 0.25 FTE for M1–M3 |
+| Content/compliance | 0.2 FTE from M1 onward |
+| QA | 0.25 FTE from M1, device lab access required |
+| Infra | Expo/EAS build minutes; no new paid services; no servers to run |
+| Third-party APIs | No paid tiers, all free/public endpoints used under their usage policies |
+| Devices | Two physical Android devices + one iPhone available for the matrix |
+
+**Explicitly not funded in v1.1:** any backend, push-notification server, analytics pipeline, localization vendor, or store submission.
+
+---
+
+## 13. Communication and cadence
+
+| Cadence | Meeting | Output |
+|---|---|---|
+| Daily (async) | Workstream board update | Blockers raised same-day |
+| Twice weekly | Content review batch | Reviewed copy + kit catalog deltas |
+| Weekly | Release sync (30 min) | Status, risks, next week's commits |
+| Milestone end | Exit review (60 min) | Sign-off or explicit no-go with a date |
+
+Every work package has one owner, a requirement-ID list, and a written exit criterion. Anything without all three is not ready to start.
+
+---
+
+## 14. Definition of success for v1.1
+
+StormReady v1.1 ships when a new user can:
+
+1. Install it, complete onboarding in a few minutes, and get a household-specific plan.
+2. Open a **kit list** with real quantities, stated bases, and sources — and take it to the store or send it to a family member.
+3. Record their **evacuation zone** for their county and see, always, who entered it and when.
+4. Get a gentle reminder if they stall — and never be told an emergency is happening.
+5. Do all of the above on a plane, on a phone with no account, with the app never having asked for their location unprompted.
+
+If those five sentences are true for a real user on a real device, v1.1 is done — regardless of how many of the v1.2 backlog items remain.
