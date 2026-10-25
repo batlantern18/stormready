@@ -146,6 +146,18 @@ export default function MapScreen() {
   const sheetHeight = useSharedValue(0);
   const sheetTranslateY = useSharedValue(0);
   const reducedMotion = useReducedMotion();
+  // Android's Yoga lays a ScrollView out at its full content height whenever
+  // the parent's height is only capped by a `maxHeight` (the sheet case): the
+  // view is clipped on screen but believes it is fully visible, so it never
+  // scrolls. Bounding the scroll view itself with measured numbers restores
+  // scrolling; the sheet's own percentage cap stays in the styles.
+  const [sheetAreaHeight, setSheetAreaHeight] = useState(0);
+  const [sheetGripHeight, setSheetGripHeight] = useState(0);
+  // 33 covers the sheet's vertical padding (10 top, 14 bottom) plus the 9 gap
+  // between the grip row and the scroll area, matching the sheet styles.
+  const sheetScrollMax = sheetAreaHeight && sheetGripHeight
+    ? Math.max(140, sheetAreaHeight * 0.42 - 33 - sheetGripHeight)
+    : undefined;
   const [query, setQuery] = useState('');
   const [destinationPoint, setDestinationPoint] = useState<DestinationPoint | null>(null);
   // A destination pinned on the map already has its coordinates. They are kept
@@ -997,7 +1009,7 @@ export default function MapScreen() {
   const markerView = (kind: 'place' | 'shelter' | 'current' | 'destination') => <View style={[styles.marker, kind === 'place' ? styles.placeMarker : kind === 'current' ? styles.currentMarker : kind === 'destination' ? styles.destinationMarker : styles.shelterMarker]}><View style={styles.markerCore} /></View>;
 
   return <Page scroll={false}>
-    <View style={styles.screen}>
+    <View style={styles.screen} onLayout={event => setSheetAreaHeight(event.nativeEvent.layout.height)}>
       <BlurTargetView ref={blurTarget} style={styles.absoluteMap}>
         <NativeMap
           style={styles.absoluteMap}
@@ -1081,7 +1093,7 @@ export default function MapScreen() {
           style={StyleSheet.absoluteFill}
         />
         <View style={styles.sheetContentLayer}>
-        <View style={styles.sheetGrip}>
+        <View style={styles.sheetGrip} onLayout={event => setSheetGripHeight(event.nativeEvent.layout.height)}>
           <View style={{ flex: 1, minWidth: 0 }}>
             <Text style={styles.sheetTitle}>{pack ? 'Downloaded map contents' : 'Explore the map'}</Text>
             <Text numberOfLines={1} style={styles.sheetSub}>{pack ? `${markers.length} shelters · ${pack.routingGraphUri ? 'offline road navigation ready' : 'offline roads not saved'}` : 'Search an address to save an area offline'}</Text>
@@ -1097,7 +1109,13 @@ export default function MapScreen() {
             <Text style={styles.sheetToggleSymbol}>{contentsCollapsed ? '⌃' : '⌄'}</Text>
           </Pressable>
         </View>
-        <ScrollView style={styles.sheetScroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={styles.sheetContent}>
+        <ScrollView
+          style={[styles.sheetScroll, sheetScrollMax ? { maxHeight: sheetScrollMax } : null]}
+          nestedScrollEnabled
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.sheetContent}
+        >
         {selectedShelter ? <View style={styles.selectedShelter}>
           <Row style={{ alignItems: 'flex-start', gap: 10 }}><View style={{ flex: 1, gap: 3 }}><Text style={styles.sheetTitle}>{selectedShelter.name}</Text><Body>{selectedShelter.address}{selectedShelter.city ? `, ${selectedShelter.city}` : ''} · {selectedShelter.distance.toFixed(1)} mi</Body></View><Pressable accessibilityRole="button" accessibilityLabel="Dismiss selected shelter" onPress={() => setSelectedShelter(null)} hitSlop={10}><Text style={styles.dismiss}>×</Text></Pressable></Row>
           <Action small title="Route to shelter offline" onPress={() => void navigateTo(selectedShelter, selectedShelter.name)} />
