@@ -3,7 +3,6 @@ import { Image, StyleSheet, Text, View } from 'react-native';
 import { Link } from 'expo-router';
 import { usePlan } from '../../plan';
 import { visibleTasks } from '../../plan-schema';
-import { zoneSummary } from '../../zone/verification';
 import { calculateKit } from '../../kit/calculator';
 import { coverageFor } from '../../inventory/model';
 import { seasonCheck } from '../../readiness/season';
@@ -23,7 +22,6 @@ export default function Home() {
   const visible = visibleTasks(plan.tasks, plan.household);
   const completed = visible.filter(task => task.done).length;
   const next = visible.find(task => !task.done);
-  const zone = zoneSummary(plan.zone);
   const now = useMemo(() => new Date(), []);
   const kitLines = useMemo(
     () => calculateKit(plan.household, plan.medical, plan.communication),

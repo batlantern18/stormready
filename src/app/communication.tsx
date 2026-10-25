@@ -1,14 +1,13 @@
 import React, { useMemo, useState } from 'react';
-import { Alert, Share, StyleSheet, Text, View } from 'react-native';
-import { Linking } from 'react-native';
+import { Alert, Linking, Share, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import {
+  clampCheckIn,
   type CommunicationPlan,
   type EmergencyContact,
   type CheckInPlan,
 } from '../plan-schema';
 import { communicationCardText, commsCompletion, isContactNear, telHref } from '../comms/model';
-import { clampCheckIn } from '../plan-schema';
 import { zoneSummary } from '../zone/verification';
 import { newId } from '../util/id';
 import { usePlan } from '../plan';

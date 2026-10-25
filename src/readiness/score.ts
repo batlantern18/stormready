@@ -1,4 +1,4 @@
-import { effectiveMedicalNeeds, isMedicalPlanEmpty, visibleTasks, type CommunicationPlan, type DrillResult, type GoBagState, type Household, type InventoryState, type MedicalPlan, type PlanState, type ProfilePlan, type Task, type VerifiedZone } from '../plan-schema';
+import { effectiveMedicalNeeds, isMedicalPlanEmpty, visibleTasks, type CommunicationPlan, type DrillResult, type GoBagState, type Household, type InventoryState, type MedicalPlan, type Task, type VerifiedZone } from '../plan-schema';
 import { commsCompletion, hasOutOfAreaContact } from '../comms/model';
 import { isZoneStale } from '../zone/verification';
 import { bagProgress } from '../gobag/model';

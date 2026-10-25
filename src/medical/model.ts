@@ -1,5 +1,4 @@
-import type { Household } from '../plan-schema';
-import { clampMedication, clampMedicalDevice, isMedicalPlanEmpty, type MedicalPlan } from '../plan-schema';
+import { clampMedication, clampMedicalDevice, isMedicalPlanEmpty, type Household, type MedicalPlan } from '../plan-schema';
 import type { KitLine } from '../kit/catalog';
 import { READY_GOV } from '../kit/catalog';
 

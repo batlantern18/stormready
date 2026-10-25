@@ -1,10 +1,13 @@
-import React, { useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { Modal, StyleSheet, Text, View } from 'react-native';
+import { CameraView, useCameraPermissions } from 'expo-camera';
+import QRCode from 'react-native-qrcode-svg';
 import { useRouter } from 'expo-router';
 import {
   DEFAULT_EXPORT_OPTIONS,
   buildEnvelope,
   mergeEnvelope,
+  parseEnvelope,
   previewImport,
   type ExportOptions,
   type ImportPreview,
@@ -17,6 +20,7 @@ import { Action, Body, Card, Header, MotionPressable, Page, Pill, Row, ToggleRow
 import { darkColors, lightColors, type Palette, useAppTheme } from '../../theme';
 import { useT, type TranslationKey } from '../../i18n';
 import { formatDate } from '../../i18n/format';
+import { assembleTransferQrFrames, makeTransferQrFrames, parseTransferQrFrame } from '../../transfer/qr';
 
 const OPTION_KEYS: { key: keyof ExportOptions; nameKey: TranslationKey; detailKey: TranslationKey }[] = [
   { key: 'household', nameKey: 'transfer.section.household', detailKey: 'transfer.section.detail.household' },
@@ -71,27 +75,115 @@ export default function Transfer() {
   const [pending, setPending] = useState<{ envelope: PlanEnvelope; preview: ImportPreview } | null>(null);
   const [readError, setReadError] = useState('');
   const [done, setDone] = useState<{ added: number; conflicts: number; skipped: number } | null>(null);
+  const [qrFrames, setQrFrames] = useState<string[] | null>(null);
+  const [qrFrameIndex, setQrFrameIndex] = useState(0);
+  const [scanOpen, setScanOpen] = useState(false);
+  const [scanCount, setScanCount] = useState(0);
+  const [scanTotal, setScanTotal] = useState(0);
+  const [scanError, setScanError] = useState('');
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+  const qrCollection = useRef<{ sessionId: string; total: number; frames: Map<number, string> } | null>(null);
+  const scanComplete = useRef(false);
+
+  useEffect(() => {
+    if (!qrFrames || qrFrames.length < 2) return;
+    const timer = setInterval(() => setQrFrameIndex(index => (index + 1) % qrFrames.length), 850);
+    return () => clearInterval(timer);
+  }, [qrFrames]);
 
   const toggle = (key: keyof ExportOptions) => setOptions(current => ({ ...current, [key]: !current[key] }));
 
-  const exportPlan = async () => {
+  const createEnvelope = (): PlanEnvelope | null => {
     setExportError('');
     setDone(null);
     const profileId = plan.profileId || 'default';
     const profile = plan.doc.profiles[profileId] ?? plan.doc.profiles.default;
     if (!profile) {
       setExportError(t('transfer.export.error'));
-      return;
+      return null;
     }
-    const envelope = buildEnvelope(profile, options, {
+    return buildEnvelope(profile, options, {
       planId: newId('plan'),
       exportedAt: new Date().toISOString(),
     });
+  };
+
+  const exportPlan = async () => {
+    const envelope = createEnvelope();
+    if (!envelope) return;
     try {
       const shared = await shareEnvelope(envelope);
       if (!shared) setExportError(t('transfer.share.unavailable'));
     } catch {
       setExportError(t('transfer.export.error'));
+    }
+  };
+
+  const showQrCode = () => {
+    const envelope = createEnvelope();
+    if (!envelope) return;
+    try {
+      setQrFrames(makeTransferQrFrames(envelope, newId('qr')));
+      setQrFrameIndex(0);
+    } catch {
+      setExportError(t('transfer.qr.tooLarge'));
+    }
+  };
+
+  const closeScanner = () => {
+    setScanOpen(false);
+    qrCollection.current = null;
+    scanComplete.current = false;
+    setScanCount(0);
+    setScanTotal(0);
+    setScanError('');
+  };
+
+  const startScanner = () => {
+    qrCollection.current = null;
+    scanComplete.current = false;
+    setPending(null);
+    setDone(null);
+    setReadError('');
+    setScanCount(0);
+    setScanTotal(0);
+    setScanError('');
+    setScanOpen(true);
+  };
+
+  const handleQrScan = ({ data }: { data: string }) => {
+    if (scanComplete.current) return;
+    const frame = parseTransferQrFrame(data);
+    if (!frame) return;
+    let collection = qrCollection.current;
+    if (!collection || collection.sessionId !== frame.sessionId) {
+      collection = { sessionId: frame.sessionId, total: frame.total, frames: new Map() };
+      qrCollection.current = collection;
+      setScanCount(0);
+      setScanTotal(frame.total);
+      setScanError('');
+    }
+    if (collection.total !== frame.total || collection.frames.has(frame.index)) return;
+    collection.frames.set(frame.index, frame.chunk);
+    setScanCount(collection.frames.size);
+    const serialized = assembleTransferQrFrames(collection.frames, collection.total);
+    if (!serialized) return;
+
+    scanComplete.current = true;
+    try {
+      const result = parseEnvelope(JSON.parse(serialized));
+      if (!result.ok) {
+        setScanError(result.reason);
+        scanComplete.current = false;
+        qrCollection.current = null;
+        return;
+      }
+      setPending({ envelope: result.envelope, preview: previewImport(plan, result.envelope) });
+      closeScanner();
+    } catch {
+      setScanError(t('transfer.qr.invalid'));
+      scanComplete.current = false;
+      qrCollection.current = null;
     }
   };
 
@@ -158,7 +250,9 @@ export default function Transfer() {
         onPress={() => toggle(row.key)}
       />)}
       <Action title={t('transfer.export.create')} onPress={() => void exportPlan()} />
+      <Action title={t('transfer.qr.show')} kind="secondary" onPress={showQrCode} />
       <Body style={{ fontSize: 11 }}>{t('transfer.export.warning')}</Body>
+      <Body style={{ fontSize: 11 }}>{t('transfer.qr.note')}</Body>
       {exportError ? <Text accessibilityRole="alert" style={{ color: colors.red, fontSize: 12 }}>{exportError}</Text> : null}
     </Card>
 
@@ -166,6 +260,7 @@ export default function Transfer() {
       <Text style={[styles.heading, dark && { color: colors.ink }]}>{t('transfer.import.title')}</Text>
       <Body style={{ fontSize: 12 }}>{t('transfer.import.body')}</Body>
       <Action title={importing ? t('transfer.import.reading') : t('transfer.import.choose')} kind="secondary" disabled={importing} onPress={() => void importPlan()} />
+      <Action title={t('transfer.qr.scan')} kind="secondary" onPress={startScanner} />
       {readError ? <Text accessibilityRole="alert" style={{ color: colors.red, fontSize: 12 }}>{readError}</Text> : null}
       {done ? <Card style={{ backgroundColor: colors.mint, borderColor: colors.mint }}>
         <Text style={{ color: colors.tealDark, fontWeight: '800', fontSize: 15 }}>{t('transfer.import.done')}</Text>
@@ -205,6 +300,45 @@ export default function Transfer() {
       <Body>{t('transfer.how.body')}</Body>
       <Body style={{ fontSize: 11 }}>{t('transfer.how.note')}</Body>
     </Card>
+
+    <Modal visible={qrFrames !== null} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setQrFrames(null)}>
+      <View style={styles.qrModal}>
+        <Text style={[styles.heading, { color: colors.ink }]}>{t('transfer.qr.title')}</Text>
+        <Body style={{ textAlign: 'center' }}>{t('transfer.qr.send.help')}</Body>
+        {qrFrames?.length ? <>
+          <View style={styles.qrCodeBox}>
+            <QRCode value={qrFrames[qrFrameIndex]} size={270} ecl="M" quietZone={12} color={colors.ink} backgroundColor={colors.surface} />
+          </View>
+          <Text style={{ color: colors.ink, fontSize: 15, fontWeight: '700' }}>{t('transfer.qr.part', { current: qrFrameIndex + 1, total: qrFrames.length })}</Text>
+          <Body style={{ textAlign: 'center' }}>{t('transfer.qr.send.keepOpen')}</Body>
+        </> : null}
+        <Body style={{ fontSize: 11, textAlign: 'center' }}>{t('transfer.qr.note')}</Body>
+        <Action title={t('common.done')} kind="secondary" onPress={() => setQrFrames(null)} />
+      </View>
+    </Modal>
+
+    <Modal visible={scanOpen} animationType="slide" presentationStyle="fullScreen" onRequestClose={closeScanner}>
+      <View style={styles.scanModal}>
+        <Text style={[styles.heading, { color: colors.ink }]}>{t('transfer.qr.scan.title')}</Text>
+        <Body style={{ textAlign: 'center' }}>{t('transfer.qr.scan.help')}</Body>
+        {!cameraPermission ? <Body>{t('transfer.qr.camera.loading')}</Body> : !cameraPermission.granted ? <View style={{ alignSelf: 'stretch', gap: 10 }}>
+          <Body>{t('transfer.qr.camera.permission')}</Body>
+          <Action title={t('transfer.qr.camera.allow')} onPress={() => void requestCameraPermission()} />
+        </View> : scanOpen ? <View style={styles.cameraFrame}>
+          <CameraView
+            style={styles.camera}
+            facing="back"
+            barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
+            onBarcodeScanned={handleQrScan}
+          />
+        </View> : null}
+        {scanTotal > 0 ? <Text accessibilityRole="text" accessibilityLiveRegion="polite" style={{ color: colors.ink, fontWeight: '700', textAlign: 'center' }}>
+          {t('transfer.qr.scan.progress', { received: scanCount, total: scanTotal })}
+        </Text> : null}
+        {scanError ? <Text accessibilityRole="alert" style={{ color: colors.red, fontSize: 12, textAlign: 'center' }}>{scanError}</Text> : null}
+        <Action title={t('common.cancel')} kind="secondary" onPress={closeScanner} />
+      </View>
+    </Modal>
   </Page>;
 }
 
@@ -222,6 +356,11 @@ const createStyles = (colors: Palette) => StyleSheet.create({
   back: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 4 },
   backText: { fontSize: 15, fontWeight: '700' },
   heading: { color: colors.onSurface, fontWeight: '800', fontSize: 17 },
+  qrModal: { flex: 1, backgroundColor: colors.surface, padding: 22, alignItems: 'center', justifyContent: 'center', gap: 18 },
+  qrCodeBox: { padding: 12, borderRadius: 18, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
+  scanModal: { flex: 1, backgroundColor: colors.surface, padding: 22, alignItems: 'center', justifyContent: 'center', gap: 18 },
+  cameraFrame: { width: '100%', aspectRatio: 1, overflow: 'hidden', borderRadius: 20, backgroundColor: colors.outline },
+  camera: { flex: 1 },
 });
 
 const lightStyles = createStyles(lightColors);

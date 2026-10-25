@@ -1,5 +1,4 @@
-import type { VerifiedZone, ZoneSource } from '../plan-schema';
-import { LIMITS, normalizeCountry, type CountryCode } from '../plan-schema';
+import { LIMITS, normalizeCountry, type CountryCode, type VerifiedZone, type ZoneSource } from '../plan-schema';
 import { CONFIDENCE_LABELS, providersFor, ZONE_PROVIDERS } from './registry';
 
 export const STALE_AFTER_DAYS = 90;

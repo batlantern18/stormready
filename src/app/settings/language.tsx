@@ -2,7 +2,7 @@ import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import type { LocalePreference } from '../../storage/keys';
-import { Action, Body, Card, Header, MotionPressable, Page, Pill, Row } from '../../ui';
+import { Body, Card, Header, MotionPressable, Page, Pill, Row } from '../../ui';
 import { darkColors, lightColors, type Palette, useAppTheme } from '../../theme';
 import { useT, type TranslationKey } from '../../i18n';
 import { formatDate } from '../../i18n/format';

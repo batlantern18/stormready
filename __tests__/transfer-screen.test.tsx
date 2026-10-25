@@ -166,6 +166,6 @@ describe('transfer screen (F06)', () => {
     await renderTransfer();
 
     await waitFor(() => expect(screen.getByText('How transfer works')).toBeTruthy());
-    expect(screen.getByText('No account exists at either end — the file is the whole connection.')).toBeTruthy();
+    expect(screen.getByText('QR transfer stays on the two screens — no account or server is involved.')).toBeTruthy();
   });
 });

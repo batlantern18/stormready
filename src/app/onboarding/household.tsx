@@ -5,13 +5,11 @@ import { OnboardingPage } from '../../onboarding/ui';
 import { usePlan } from '../../plan';
 import { Action, Body, Card, Field, Stepper, ToggleRow } from '../../ui';
 import { useAppTheme } from '../../theme';
-import { useT } from '../../i18n';
 
 export default function HouseholdStep() {
   const plan = usePlan();
   const router = useRouter();
   const { colors } = useAppTheme();
-  const { t } = useT();
   const { household } = plan;
   return <OnboardingPage
     step={2}

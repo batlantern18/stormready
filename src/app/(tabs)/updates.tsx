@@ -35,7 +35,7 @@ export default function Updates() {
       setState(snapshot.countryCode === 'MX' ? 'mexico' : 'success');
       if (snapshot.countryCode === 'MX') setMessage('Showing saved Mexico source guidance. Current alerts require checking official local sources.');
     }).catch(() => {});
-  }, []);
+  }, [profileId]);
   const storeSnapshot = (snapshot: AlertSnapshot) => {
     setSnapshotAvailable(true);
     setSnapshotCountry(snapshot.countryCode);
@@ -127,7 +127,7 @@ export default function Updates() {
   return <Page>
     <Header eyebrow="Weather & safety" title="Know what’s happening nearby." subtitle="Check U.S. National Weather Service alerts for your location, or open official Mexico sources." />
     <Card style={{ backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant }}>
-      <Row><Pill tone="amber">LIVE CHECK</Pill><Text style={{ color: colors.amber, fontSize: 13, fontWeight: '700' }}>U.S. NWS · MEXICO OFFICIAL SOURCES</Text></Row>
+      <Row><Pill tone="amber">LIVE CHECK</Pill></Row>
       <Text style={{ color: colors.ink, fontSize: 19, lineHeight: 24, fontWeight: '800' }}>Check active alerts around you</Text>
       <Body>Your location or entered address selects the alert source. U.S. coordinates are sent to the National Weather Service and the latest result is saved only on this device so you can review it offline.</Body>
       <Action title={state === 'loading' ? 'Checking your area…' : 'Check my area'} onPress={refresh} />

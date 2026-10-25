@@ -1,6 +1,5 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { Alert, Share, StyleSheet, Text, View, Platform } from 'react-native';
-import { Linking } from 'react-native';
+import { Alert, Linking, Platform, Share, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import {
   isMedicalPlanEmpty,

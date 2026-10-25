@@ -62,7 +62,6 @@ export function PlanProvider({ children }: React.PropsWithChildren) {
     if (!ready) return;
     const stamped: PlanState = { ...doc, updatedAt: new Date().toISOString() };
     save(keys.plan, stamped);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- stamp the saved copy, not the reducer state
   }, [doc, ready]);
 
   const readyProfile = ready

@@ -53,16 +53,20 @@ export function Body({ children, style }: React.PropsWithChildren<{ style?: Styl
   return <Text style={[s.body, style]}>{children}</Text>;
 }
 
-export function Field({ label, value, onChangeText, placeholder, keyboardType, multiline }: {
+export function Field({ label, value, onChangeText, placeholder, keyboardType, multiline, onFocus, onBlur, onSubmitEditing, autoCapitalize, autoCorrect, returnKeyType }: {
   label: string; value: string; onChangeText: (v: string) => void; placeholder?: string;
   keyboardType?: 'default' | 'numeric' | 'phone-pad'; multiline?: boolean;
+  onFocus?: () => void; onBlur?: () => void; onSubmitEditing?: () => void;
+  autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters'; autoCorrect?: boolean;
+  returnKeyType?: 'done' | 'go' | 'next' | 'search' | 'send';
 }) {
   const { dark, colors } = useAppTheme();
   const s = dark ? darkStyles : lightStyles;
   return <View style={s.fieldGroup}>
     <Text style={s.label}>{label}</Text>
     <TextInput value={value} onChangeText={onChangeText} placeholder={placeholder} placeholderTextColor={colors.onSurfaceVariant}
-      keyboardType={keyboardType} multiline={multiline}
+      keyboardType={keyboardType} multiline={multiline} onFocus={onFocus} onBlur={onBlur} onSubmitEditing={onSubmitEditing}
+      autoCapitalize={autoCapitalize} autoCorrect={autoCorrect} returnKeyType={returnKeyType}
       style={[s.input, multiline && { minHeight: 88, textAlignVertical: 'top' }]} />
   </View>;
 }
@@ -308,7 +312,7 @@ export function MotionPressable({ onPressIn, onPressOut, style, ...props }: Pres
   // callback style form. Resolve it here and pass a plain style array so the
   // caller's background, border, and pressed feedback reach the native view.
   const resolvedStyle = typeof style === 'function'
-    ? style({ pressed, hovered: false })
+    ? (style as (state: { pressed: boolean }) => StyleProp<ViewStyle>)({ pressed })
     : style;
   return <AnimatedPressable
     {...props}

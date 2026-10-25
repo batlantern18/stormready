@@ -6,7 +6,7 @@ import { disableReminders, enableReminders, loadReminderState } from '../../noti
 import type { ReminderState } from '../../notifications/types';
 import { Action, Body, Card, Header, Page, Pill, Row } from '../../ui';
 import { useAppTheme } from '../../theme';
-import { useT, type TranslationKey } from '../../i18n';
+import { useT } from '../../i18n';
 
 export default function Settings() {
   const plan = usePlan();

@@ -45,7 +45,6 @@ const PACK_STALL_MS = 90_000;
 /** Stop polling a status that never settles so the screen does not poll forever. */
 const PACK_MAX_WATCH_MS = 10 * 60_000;
 const HEADER_ID = 'stormready-openfreemap-user-agent';
-const AnimatedBlurView = Animated.createAnimatedComponent(BlurView);
 
 type Progress = { percent: number; tiles: number; bytes: number; state: string };
 type DestinationPoint = MapDestination;
@@ -1065,11 +1064,7 @@ export default function MapScreen() {
         </Pressable>
       </View>
 
-      <AnimatedBlurView
-        blurTarget={blurTarget}
-        blurMethod="dimezisBlurViewSdk31Plus"
-        intensity={78}
-        tint={dark ? 'dark' : 'light'}
+      <Animated.View
         style={[styles.sheet, sheetStyle]}
         onLayout={event => {
           const height = event.nativeEvent.layout.height;
@@ -1077,6 +1072,15 @@ export default function MapScreen() {
           if (contentsCollapsed) sheetTranslateY.set(Math.max(0, height - 82));
         }}
       >
+        <BlurView
+          blurTarget={blurTarget}
+          blurMethod="dimezisBlurViewSdk31Plus"
+          intensity={78}
+          tint={dark ? 'dark' : 'light'}
+          pointerEvents="none"
+          style={StyleSheet.absoluteFill}
+        />
+        <View style={styles.sheetContentLayer}>
         <View style={styles.sheetGrip}>
           <View style={{ flex: 1, minWidth: 0 }}>
             <Text style={styles.sheetTitle}>{pack ? 'Downloaded map contents' : 'Explore the map'}</Text>
@@ -1093,7 +1097,7 @@ export default function MapScreen() {
             <Text style={styles.sheetToggleSymbol}>{contentsCollapsed ? '⌃' : '⌄'}</Text>
           </Pressable>
         </View>
-        <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={styles.sheetContent}>
+        <ScrollView style={styles.sheetScroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={styles.sheetContent}>
         {selectedShelter ? <View style={styles.selectedShelter}>
           <Row style={{ alignItems: 'flex-start', gap: 10 }}><View style={{ flex: 1, gap: 3 }}><Text style={styles.sheetTitle}>{selectedShelter.name}</Text><Body>{selectedShelter.address}{selectedShelter.city ? `, ${selectedShelter.city}` : ''} · {selectedShelter.distance.toFixed(1)} mi</Body></View><Pressable accessibilityRole="button" accessibilityLabel="Dismiss selected shelter" onPress={() => setSelectedShelter(null)} hitSlop={10}><Text style={styles.dismiss}>×</Text></Pressable></Row>
           <Action small title="Route to shelter offline" onPress={() => void navigateTo(selectedShelter, selectedShelter.name)} />
@@ -1172,7 +1176,8 @@ export default function MapScreen() {
           <Text style={styles.dataNote}>Shelter locations are not live opening or capacity updates. Offline route guidance uses the road network saved with this map; trips that leave the saved area fetch their road data once while connected, then work offline. OSM-derived map · © OpenStreetMap contributors · © OpenMapTiles.</Text>
         </>}
         </ScrollView>
-      </AnimatedBlurView>
+        </View>
+      </Animated.View>
 
     </View>
 
@@ -1264,10 +1269,12 @@ const createStyles = (colors: Palette, dark = false) => StyleSheet.create({
   mapButton: { width: 48, height: 48, borderRadius: 17, backgroundColor: colors.surfaceContainer, alignItems: 'center', justifyContent: 'center', shadowColor: '#1C2D27', shadowOpacity: 0.16, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 5 },
   mapButtonSymbol: { color: colors.tealDark, fontSize: 23, fontWeight: '700' },
   sheet: { position: 'absolute', left: 10, right: 10, bottom: 10, maxHeight: '42%', borderRadius: 25, overflow: 'hidden', paddingHorizontal: 17, paddingTop: 10, paddingBottom: 14, gap: 9, backgroundColor: colors.surfaceContainerLow, borderWidth: 1, borderColor: colors.outlineVariant, shadowColor: '#1C2D27', shadowOpacity: 0.16, shadowRadius: 22, shadowOffset: { width: 0, height: 7 }, elevation: 8 },
+  sheetContentLayer: { flex: 1, minHeight: 0, gap: 9 },
+  sheetScroll: { flex: 1, minHeight: 0 },
   sheetWithPack: { maxHeight: '52%' },
   sheetGrip: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   sheetToggle: { width: 44, height: 44, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surfaceContainerHigh, borderWidth: 1, borderColor: colors.outlineVariant },
-  sheetToggleSymbol: { color: colors.tealDark, fontSize: 25, lineHeight: 29, fontWeight: '700' },
+  sheetToggleSymbol: { color: colors.tealDark, fontSize: 25, lineHeight: 29, fontWeight: '700', includeFontPadding: false, textAlign: 'center', textAlignVertical: 'center' },
   sheetContent: { gap: 9, paddingBottom: 4 },
   sheetTitle: { color: colors.ink, fontSize: 17, lineHeight: 22, letterSpacing: -0.25, fontWeight: '700' },
   sheetSub: { color: colors.muted, fontSize: 11, lineHeight: 15, marginTop: 2 },

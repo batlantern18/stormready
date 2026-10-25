@@ -1,10 +1,10 @@
 import type { AlertSnapshot } from '../alerts';
 import type { AreaPack, MapDestination } from '../area';
-import type { ProfileId } from '../plan-schema';
 import { DEFAULT_REMINDER_STATE, type ReminderState } from '../notifications/types';
 import {
   DEFAULT_PLAN,
   DEFAULT_PROFILE_ID,
+  type ProfileId,
   type PlanState,
 } from '../plan-schema';
 import { moveToProfileMap, migratePlanFromV2 } from './migrate';

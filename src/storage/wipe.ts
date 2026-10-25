@@ -1,8 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 import * as FileSystem from 'expo-file-system/legacy';
-import type { AreaPackMap } from './keys';
-import { areaKey, keys, type KeySpec } from './keys';
+import { areaKey, keys, type AreaPackMap, type KeySpec } from './keys';
 import { load } from './store';
 
 /**

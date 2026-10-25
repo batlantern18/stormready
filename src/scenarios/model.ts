@@ -1,5 +1,5 @@
 import type { DrillAnswer, DrillResult } from '../plan-schema';
-import { DRILLS, type DrillDefinition, type DrillStep } from './drills';
+import { DRILLS, type DrillDefinition } from './drills';
 
 /**
  * F08 — drill scoring and records (pure).

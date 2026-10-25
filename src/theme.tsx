@@ -1,5 +1,5 @@
 import React, { createContext, createElement, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { keys, normalizeLocale, type LocalePreference } from './storage/keys';
+import { keys, type LocalePreference } from './storage/keys';
 import { load, save } from './storage/store';
 
 export const lightColors = {

@@ -640,10 +640,10 @@ A household plan is only useful to the people in the household, and the people i
 
 #### What it does
 
-**Plan Transfer** produces a single, self-contained file that can be moved to another device by any means the user already has (cable, Bluetooth, email to themselves, messaging app) and opened by StormReady there.
+**Plan Transfer** produces a self-contained envelope that can move to another device as a file or directly between two phone screens with a rotating, multi-part QR code.
 
 - **Export** produces a `.stormready-plan` JSON document: a versioned envelope containing the plan, the inventory, the go-bags, the medical plan, the communication plan, and the checklist state.
-- **Import** reads such a file (via the document picker) and offers a **preview before merge**: a screen that shows what will be imported, what will conflict, and what will be skipped. The user chooses **Merge** (combine) or **Replace** (overwrite the local plan).
+- **Import** reads a file (via the document picker) or assembles QR parts from the camera, then offers a **preview before merge**: a screen that shows what will be imported, what will conflict, and what will be skipped. The user chooses **Merge** (combine) or **Replace** (overwrite the local plan).
 - Merge rules are explicit and conservative: checklists merge by task id, keeping the more complete state; contacts, medications, and bags union by id; the zone is **not** imported silently — the importing device keeps its own zone and is told why.
 - The exported file is **redacted by default**: no medical details unless the user opts in with an explicit toggle, no inventory quantities unless opted in. The export screen states exactly what is included, in plain language.
 - The file carries a `planId` (a random local id, not a device id) so repeated imports of the same export are recognized, and a `exportedAt` timestamp so the receiving device can say "this plan was exported on 3 March".
@@ -652,8 +652,8 @@ A household plan is only useful to the people in the household, and the people i
 
 1. **Settings → "Share my plan"** (also from the Plan screen's footer).
 2. The export screen lists the sections with toggles: household, checklist, contacts, go-bags, medical (off by default), inventory (off by default).
-3. "Create file" writes it to a temporary file and opens the system share sheet so the user can send it however they like. The share sheet is the only transport — no upload.
-4. On the receiving device: **Settings → "Import a plan"** opens the system document picker. After selection, a preview screen lists what will change.
+3. The user chooses **Create file** to open the system share sheet, or **Show plan QR code** to display rotating parts from the selected envelope.
+4. On the receiving device: **Settings → "Import a plan"** opens the document picker, or **Scan a plan QR code** gathers all parts from the sender's screen. After receipt, a preview screen lists what will change.
 5. "Merge" applies the import; a non-blocking banner confirms what was imported and what was skipped.
 
 #### Data model
@@ -685,7 +685,7 @@ export type ImportPreview = {
 };
 ```
 
-Pure module `src/transfer/model.ts`: `buildEnvelope(plan, options)`, `previewImport(current, envelope)`, `mergeEnvelope(current, envelope, decisions)`. A separate `src/transfer/file.ts` handles `expo-file-system` read/write and the document picker.
+Pure module `src/transfer/model.ts`: `buildEnvelope(plan, options)`, `previewImport(current, envelope)`, `mergeEnvelope(current, envelope, decisions)`. `src/transfer/file.ts` handles the file share and document picker; `src/transfer/qr.ts` chunks and assembles the same envelope for camera-based transfer.
 
 **Rules:**
 
@@ -694,12 +694,12 @@ Pure module `src/transfer/model.ts`: `buildEnvelope(plan, options)`, `previewImp
 - `R-EXP-3` — Import never overwrites without a preview and an explicit choice.
 - `R-EXP-4` — Merge never deletes local data. Local-only sections (e.g. an import that omits the medical plan) leave the local medical plan untouched.
 - `R-EXP-5` — The envelope carries a `format` and `version`; a file with an unknown format or a newer version is rejected with a plain explanation and no partial import.
-- `R-EXP-6` — The file is plain JSON with a documented shape; it is not encrypted. The export screen says so and recommends a private channel.
+- `R-EXP-6` — Transfer data is plain JSON and is not encrypted. The export screen warns that selected details are visible on screen or in the shared file.
 - `R-EXP-7` — No network request is made during export or import.
 
 #### Offline and privacy
 
-Entirely offline. The file travels by the user's own chosen channel; StormReady never uploads it.
+Entirely offline. Files travel through the user's chosen channel; QR data is displayed and scanned between devices. StormReady never uploads it.
 
 #### Acceptance criteria
 
@@ -709,11 +709,12 @@ Entirely offline. The file travels by the user's own chosen channel; StormReady 
 - [ ] `R-EXP-11` — Importing a file with `version: 99` produces an error message and changes nothing.
 - [ ] `R-EXP-12` — Importing the same file twice produces a second preview that reports "already imported" for each section, with no duplicates created.
 - [ ] `R-EXP-13` — Merge unions go-bags and medications by id and never deletes a local bag.
-- [ ] `R-EXP-14` — Device check: export on phone A, transfer the file to phone B by hand, import on B, confirm the preview matches the expectation and the checklist state merged correctly.
+- [ ] `R-EXP-14` — Device check: export on phone A, transfer the file or scan its QR parts on phone B, confirm the preview and merged checklist state.
+- [ ] `R-EXP-15` — QR parts arriving out of order or more than once assemble once into the same envelope; incomplete streams never change the plan.
 
 #### Dependencies
 
-`expo-file-system` (already a dependency), `expo-document-picker` (new, Expo-supported), `src/storage/store.ts` (write-through of merged results).
+`expo-file-system`, `expo-document-picker`, `expo-camera` (SDK 58; QR scanning requires a rebuilt native app), `react-native-qrcode-svg`, `react-native-svg`, and `src/storage/store.ts` (write-through of merged results).
 
 #### Risks
 
@@ -721,11 +722,12 @@ Entirely offline. The file travels by the user's own chosen channel; StormReady 
 |---|---|---|---|
 | Users email the file and leak medical data | Medium | High | `R-EXP-1` default-redaction, plus an explicit "this file is not encrypted" warning and a "share privately" hint |
 | Import corrupts the local plan | Low | Critical | Import produces a new document through the normal store path, so versioning, migration, and corruption quarantine all still apply; a unit test covers import into a populated plan |
-| Scope creep into a sync product | Medium | Medium | File-based only. Any "automatic sync" request is a non-goal (§11) |
+| QR data is visible to nearby people | Medium | High | QR export uses the same section toggles and privacy warning as file export; users choose when to show it |
+| Scope creep into a sync product | Medium | Medium | Transfer is explicit and local. Any "automatic sync" request is a non-goal (§11) |
 
 #### Out of scope
 
-Automatic sync, cloud backup, QR-code transfer, encryption of the export file, family accounts.
+Automatic sync, cloud backup, encryption of the export file, family accounts.
 
 ---
 
@@ -1866,7 +1868,6 @@ No accounts. No cloud sync or backup. No analytics or crash reporting. No push-n
 | D1 | Print / PDF export of the plan and kit | `expo-print` adds a native dependency; the F06 text file covers the need for now |
 | D2 | Background alert refresh via task manager | Needs a native background task and a careful battery-impact review |
 | D3 | A second automated zone provider (Texas, Louisiana) | The registry (F12a) exists so this is now a data change; the lookup itself needs a reliable public source |
-| D4 | QR-code transfer between devices | A camera + encoder dependency; the file transfer covers the case |
 | D5 | Barcode scanning for expiry dates | Camera + decoding, and the accuracy problem makes it a poor first version |
 | D6 | Household sharing of a plan with live sync | Requires a backend, which violates the product's core promise |
 | D7 | Widgets on iOS | Depends on the Android widget implementation and the platform's widget capabilities |

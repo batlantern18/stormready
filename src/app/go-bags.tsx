@@ -7,9 +7,9 @@ import { newId } from '../util/id';
 import { usePlan } from '../plan';
 import { BAG_TEMPLATES } from '../gobag/templates';
 import type { GoBagTemplate } from '../plan-schema';
-import { Action, Body, Card, Field, Header, MotionPressable, Page, Pill, ProgressBar, Row, Stepper } from '../ui';
+import { Action, Body, Card, Field, Header, MotionPressable, Page, Pill, ProgressBar, Row } from '../ui';
 import { darkColors, lightColors, type Palette, useAppTheme } from '../theme';
-import { useT, type TranslationKey } from '../i18n';
+import { useT } from '../i18n';
 
 /**
  * F02 — the "Grab list": every bag in one view — name, owner, packed count,

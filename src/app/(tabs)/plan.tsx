@@ -16,12 +16,76 @@ import { useAppTheme } from '../../theme';
 import { useT } from '../../i18n';
 import { formatDateShort } from '../../i18n/format';
 
-/** US states (two-letter; season logic matches two-letter codes directly). */
+/** U.S. state names are shown in the field; the saved value remains the postal code. */
 const US_STATES = [
-  'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA', 'HI', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME',
-  'MD', 'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ', 'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA',
-  'RI', 'SC', 'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY',
-];
+  ['AL', 'Alabama'], ['AK', 'Alaska'], ['AZ', 'Arizona'], ['AR', 'Arkansas'], ['CA', 'California'],
+  ['CO', 'Colorado'], ['CT', 'Connecticut'], ['DE', 'Delaware'], ['FL', 'Florida'], ['GA', 'Georgia'],
+  ['HI', 'Hawaii'], ['ID', 'Idaho'], ['IL', 'Illinois'], ['IN', 'Indiana'], ['IA', 'Iowa'],
+  ['KS', 'Kansas'], ['KY', 'Kentucky'], ['LA', 'Louisiana'], ['ME', 'Maine'], ['MD', 'Maryland'],
+  ['MA', 'Massachusetts'], ['MI', 'Michigan'], ['MN', 'Minnesota'], ['MS', 'Mississippi'], ['MO', 'Missouri'],
+  ['MT', 'Montana'], ['NE', 'Nebraska'], ['NV', 'Nevada'], ['NH', 'New Hampshire'], ['NJ', 'New Jersey'],
+  ['NM', 'New Mexico'], ['NY', 'New York'], ['NC', 'North Carolina'], ['ND', 'North Dakota'], ['OH', 'Ohio'],
+  ['OK', 'Oklahoma'], ['OR', 'Oregon'], ['PA', 'Pennsylvania'], ['RI', 'Rhode Island'], ['SC', 'South Carolina'],
+  ['SD', 'South Dakota'], ['TN', 'Tennessee'], ['TX', 'Texas'], ['UT', 'Utah'], ['VT', 'Vermont'],
+  ['VA', 'Virginia'], ['WA', 'Washington'], ['WV', 'West Virginia'], ['WI', 'Wisconsin'], ['WY', 'Wyoming'],
+] as const;
+
+function stateOption(value: string) {
+  const normalized = value.trim().toLocaleLowerCase();
+  return US_STATES.find(([code, name]) => code.toLocaleLowerCase() === normalized || name.toLocaleLowerCase() === normalized);
+}
+
+function USStateAutocomplete({ value, label, onChange }: { value: string; label: string; onChange: (state: string) => void }) {
+  const { colors } = useAppTheme();
+  const selectedState = stateOption(value);
+  const [query, setQuery] = useState(selectedState?.[1] || value);
+  const [editing, setEditing] = useState(false);
+  const matchingStates = query.trim()
+    ? US_STATES.filter(([code, name]) => `${name} ${code}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())).slice(0, 6)
+    : US_STATES.slice(0, 6);
+  const chooseState = (code: string, name: string) => {
+    setQuery(name);
+    setEditing(false);
+    onChange(code);
+  };
+  const updateQuery = (nextQuery: string) => {
+    const currentlySelected = selectedState && query.trim().toLocaleLowerCase() === selectedState[1].toLocaleLowerCase();
+    if (!editing || currentlySelected) onChange('');
+    setEditing(true);
+    setQuery(nextQuery);
+    const exactName = US_STATES.find(([, name]) => name.toLocaleLowerCase() === nextQuery.trim().toLocaleLowerCase());
+    if (exactName) chooseState(exactName[0], exactName[1]);
+  };
+  const submitQuery = () => {
+    const suggestion = stateOption(query) || matchingStates[0];
+    if (suggestion) chooseState(suggestion[0], suggestion[1]);
+  };
+
+  return <View style={{ gap: 6 }}>
+    <Field
+      label={label}
+      value={query}
+      onChangeText={updateQuery}
+      onFocus={() => setEditing(true)}
+      onSubmitEditing={submitQuery}
+      autoCapitalize="words"
+      autoCorrect={false}
+      returnKeyType="done"
+      placeholder="Start typing a state"
+    />
+    {editing && matchingStates.length ? <View style={{ borderWidth: 1, borderColor: colors.line, borderRadius: 12, overflow: 'hidden', backgroundColor: colors.paper }}>
+      {matchingStates.map(([code, name], index) => <Pressable
+        key={code}
+        accessibilityRole="button"
+        accessibilityState={{ selected: selectedState?.[0] === code }}
+        onPress={() => chooseState(code, name)}
+        style={({ pressed }) => [{ minHeight: 44, paddingHorizontal: 14, justifyContent: 'center', backgroundColor: pressed ? colors.mint : colors.paper }, index > 0 && { borderTopWidth: 1, borderTopColor: colors.line }]}
+      >
+        <Text style={{ color: colors.ink, fontWeight: '600', fontSize: 14 }}>{name} ({code})</Text>
+      </Pressable>)}
+    </View> : null}
+  </View>;
+}
 
 export default function MyPlan() {
   const plan = usePlan();
@@ -52,20 +116,7 @@ export default function MyPlan() {
     <Card>
       <Row><View style={{ flex: 1, gap: 3 }}><Label>Household details</Label><Body>Used to personalize your kit and checklist.</Body></View><Pill>PRIVATE</Pill></Row>
       <Field label="County or local area" value={household.county} onChangeText={county => plan.setHousehold({ county })} placeholder="e.g. Hillsborough County" />
-      {household.country === 'US' ? <>
-        <Text style={{ color: colors.onSurface, fontSize: 14, fontWeight: '600', marginTop: 10 }}>{t('plan.country.stateUS')}</Text>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
-          {US_STATES.map(usState => <Pressable
-            key={usState}
-            accessibilityRole="button"
-            accessibilityState={{ selected: household.state.toUpperCase() === usState }}
-            onPress={() => plan.setHousehold({ state: usState })}
-            style={({ pressed }) => [{ minHeight: 38, minWidth: 64, paddingHorizontal: 10, borderRadius: 10, borderWidth: 1, borderColor: household.state.toUpperCase() === usState ? colors.teal : colors.line, backgroundColor: household.state.toUpperCase() === usState ? colors.mint : colors.paper, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.85 : 1 }]}
-          >
-            <Text style={{ color: colors.ink, fontWeight: '700', fontSize: 12 }}>{usState}</Text>
-          </Pressable>)}
-        </View>
-      </> : <Field label={t('plan.country.stateMX')} value={household.state} onChangeText={state => plan.setHousehold({ state })} placeholder={t('plan.country.stateMX.placeholder')} />}
+      {household.country === 'US' ? <USStateAutocomplete key={`${plan.profileId}-${household.country}`} value={household.state} label={t('plan.country.stateUS')} onChange={state => plan.setHousehold({ state })} /> : <Field label={t('plan.country.stateMX')} value={household.state} onChangeText={state => plan.setHousehold({ state })} placeholder={t('plan.country.stateMX.placeholder')} />}
       <Stepper label="People" detail="Everyone who would evacuate together." value={household.people} min={1} max={20} onChange={people => plan.setHousehold({ people })} />
       <Stepper label="Infants" value={household.infants} min={0} max={20} onChange={infants => plan.setHousehold({ infants })} />
       <Stepper label="Days to prepare" detail="Seven days is the shortest planning horizon." value={household.days} min={7} max={30} onChange={days => plan.setHousehold({ days })} />
