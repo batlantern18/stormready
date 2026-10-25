@@ -3,6 +3,7 @@ import {
   distanceToRouteMeters,
   downloadOfflineDestinationIndex,
   downloadOfflineRoadNetwork,
+  overpassMirrorUrls,
   routeOffline,
   searchOfflineDestinations,
   type OfflineDestinationIndex,
@@ -127,6 +128,23 @@ function jsonResponse(body: unknown, headers: Record<string, string> = {}) {
   } as unknown as Response;
 }
 
+/** A 200 whose chunked body stops mid-JSON, as a size-capping mirror returns. */
+function truncatedResponse() {
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode('{"elements":[{"type":"node","id":1,"tags":{"name":"Caf'));
+      controller.close();
+    },
+  });
+  return {
+    ok: true,
+    status: 200,
+    headers: { get: () => null },
+    body: stream,
+    json: async () => { throw new SyntaxError('truncated'); },
+  } as unknown as Response;
+}
+
 describe('offline downloads', () => {
   const originalFetch = globalThis.fetch;
 
@@ -157,7 +175,7 @@ describe('offline downloads', () => {
     expect(result.roads[0].coordinates).toEqual([[0, 0], [0.01, 0]]);
 
     const [url, init] = (globalThis.fetch as jest.Mock).mock.calls[0];
-    expect(url).toContain('overpass-api.de');
+    expect(url).toBe(overpassMirrorUrls()[0]);
     expect(init.method).toBe('POST');
     expect(init.headers['User-Agent']).toContain('StormReady/1.1');
     expect(decodeURIComponent(init.body)).toContain('-1,-1,1,1');
@@ -197,5 +215,95 @@ describe('offline downloads', () => {
       region: 'TX',
     });
     expect(result.destinations[1]).toMatchObject({ id: 'way/2', name: '500 Oak Rd', city: 'Austin' });
+  });
+
+  it('splits an address request that the service cuts off', async () => {
+    let calls = 0;
+    globalThis.fetch = jest.fn(async () => {
+      calls++;
+      // The first box is too big for this mirror and comes back cut off.
+      if (calls === 1) return truncatedResponse();
+      return jsonResponse({
+        elements: [{
+          type: 'node', id: calls, lat: 0, lon: 0,
+          tags: { name: `Place ${calls}`, 'addr:housenumber': String(calls), 'addr:street': 'Main St' },
+        }],
+      });
+    }) as unknown as typeof fetch;
+
+    const result = await downloadOfflineDestinationIndex([0, 0, 0.2, 0.2]);
+
+    // The index starts with sixteen small sections. The first response is cut
+    // off, so that section is split into four more requests while the other
+    // fifteen initial sections still complete.
+    expect(calls).toBe(20);
+    expect(result.destinations).toHaveLength(19);
+    expect(result.partial).toBeUndefined();
+  });
+
+  it('retries a lost section once before marking the area partial', async () => {
+    const attempts = new Map<string, number>();
+    let nextId = 1;
+    globalThis.fetch = jest.fn(async (_url: string, init: RequestInit) => {
+      const body = decodeURIComponent(String(init.body ?? ''));
+      const key = body.match(/\(([-\d.]+),([-\d.]+),([-\d.]+),([-\d.]+)\)/)![0];
+      const count = (attempts.get(key) ?? 0) + 1;
+      attempts.set(key, count);
+      // This one initial section is cut off and has to be split.
+      if (key === '(0,0,0.05,0.05)') return truncatedResponse();
+      // One of its four pieces never answers on the first pass. Every mirror
+      // and the same-mirror retry fail; the retry pass that runs after the
+      // other sections finish succeeds.
+      if (key === '(0,0,0.025,0.025)' && count <= 6) throw new TypeError('network request failed');
+      return jsonResponse({
+        elements: [{
+          type: 'node', id: nextId++, lat: 0, lon: 0,
+          tags: { name: `Place ${key}`, 'addr:housenumber': String(count), 'addr:street': 'Main St' },
+        }],
+      });
+    }) as unknown as typeof fetch;
+
+    const progress: Array<[number, number]> = [];
+    const result = await downloadOfflineDestinationIndex([0, 0, 0.2, 0.2], {
+      onProgress: (completed, total) => progress.push([completed, total]),
+    });
+
+    expect(result.partial).toBeUndefined();
+    expect(result.destinations).toHaveLength(19);
+    expect(progress.at(-1)).toEqual([16, 16]);
+    // The retry succeeds, so the section is downloaded only once.
+    expect(result.destinations.filter(destination => destination.name === 'Place (0,0,0.025,0.025)')).toHaveLength(1);
+  });
+
+  it('keeps the addresses that arrive when some sections are lost', async () => {
+    let calls = 0;
+    globalThis.fetch = jest.fn(async (_url: string, init: RequestInit) => {
+      calls++;
+      const body = decodeURIComponent(String(init.body ?? ''));
+      const box = body.match(/\(([-\d.]+),([-\d.]+),([-\d.]+),([-\d.]+)\)/);
+      // The lower-left section is cut off when asked whole and never answers
+      // when it is split into smaller pieces.
+      if (box) {
+        const [south, west, north, east] = box.slice(1).map(Number);
+        if (south >= -0.001 && north <= 0.0501 && west >= -0.001 && east <= 0.0501) {
+          if (north - south > 0.03) return truncatedResponse();
+          throw new Error('service unavailable');
+        }
+      }
+      return jsonResponse({
+        elements: [{
+          type: 'node', id: calls, lat: 0, lon: 0,
+          tags: { name: `Place ${calls}`, 'addr:housenumber': String(calls), 'addr:street': 'Main St' },
+        }],
+      });
+    }) as unknown as typeof fetch;
+
+    const result = await downloadOfflineDestinationIndex([0, 0, 0.2, 0.2]);
+
+    expect(result.destinations.length).toBeGreaterThan(0);
+    expect(result.partial).toBe(true);
+    // The missing part is reported as one of the sixteen saved-area sections,
+    // not as the four pieces it was split into.
+    expect(result.missingSections).toBe(1);
   });
 });

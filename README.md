@@ -28,7 +28,7 @@ npx eas-cli@latest login
 npm run android:apk
 ```
 
-EAS builds the APK in the cloud. When the build finishes, download the APK from the build page or CLI link and install it on an Android device. Cloud builds require an Expo account and network access. For a local Gradle build, install Android Studio and the Android SDK, then run `npx expo prebuild --platform android` and `npx expo run:android`.
+EAS builds the APK in the cloud. When the build finishes, download the APK from the build page or CLI link and install it on an Android device. Cloud builds require an Expo account and network access. For a local Gradle build, install Android Studio and the Android SDK, then cd into the scripts folder and run build-apk.sh
 
 ## Quality checks
 
@@ -66,6 +66,6 @@ OTA updates cannot add native modules or change native configuration. If you cha
 
 ## Scope and data freshness
 
-Offline vector-map packs are limited to 3,000 tiles and 50 MB per map download. When an area is saved, the app also downloads a local road network used to calculate and guide routes entirely on-device. Offline routes work only inside that saved road area; address lookup needs a connection, but users can long-press the downloaded map or choose a saved shelter as an offline destination. Routes do not include live traffic, closures, or turn restrictions. Map data is © OpenStreetMap contributors and © OpenMapTiles. U.S. FEMA shelter listings and Mexico's community-mapped listings may be incomplete or stale; verify that a shelter is open and has space with local authorities before traveling. Automated evacuation-zone lookup is currently available only for Florida. Local emergency authorities issue current orders and determine zone information. Location is requested only after the user taps a location action. Saved area data is stored on-device.
+Offline vector-map packs are limited to 3,000 tiles and 50 MB per map download. When an area is saved, the app also downloads a local road network used to calculate and guide routes entirely on-device, together with the addresses and places in that area. Offline routes work only inside that saved road area; a destination can be a saved shelter, one of the addresses saved with the area, or any spot long-pressed on the downloaded map — all of which work without a connection. Routes do not include live traffic, closures, or turn restrictions. Map data is © OpenStreetMap contributors and © OpenMapTiles. U.S. FEMA shelter listings and Mexico's community-mapped listings may be incomplete or stale; verify that a shelter is open and has space with local authorities before traveling. Automated evacuation-zone lookup is currently available only for Florida. Local emergency authorities issue current orders and determine zone information. Location is requested only after the user taps a location action. Saved area data is stored on-device.
 
 Preparedness references: [FEMA](https://www.fema.gov/emergency-managers), [National Weather Service](https://www.weather.gov/), [Ready.gov](https://www.ready.gov/), [Mexico Protección Civil](https://www.gob.mx/proteccioncivil), [Mexico National Weather Service (SMN)](https://smn.conagua.gob.mx/es/), and [CENAPRED National Risk Atlas](https://www.atlasnacionalderiesgos.gob.mx/).
