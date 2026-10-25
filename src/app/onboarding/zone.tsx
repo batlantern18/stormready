@@ -42,7 +42,7 @@ export default function ZoneStep() {
     step={3}
     eyebrow="Evacuation zone"
     title="Know your zone before you need it."
-    subtitle="Florida addresses can be checked automatically from the Map tab. Everywhere else, enter what your local emergency authority publishes."
+    subtitle="Florida addresses can be checked automatically. Everywhere else, enter what your local emergency authority publishes."
     footer={<>
       <Action title={value.trim() ? 'Save zone and continue' : 'Continue without a zone'} onPress={next} />
       <Action title="Back" kind="quiet" onPress={() => router.back()} />

@@ -63,10 +63,16 @@ async function renderScreen(node: React.ReactNode) {
     savedAt: '2026-10-19T12:00:00.000Z',
     data: {
       onboarded: false,
-      household: { people: 2, infants: 0, days: 7, pets: false, petCount: 0, hasVehicle: true, medicalNeeds: false, county: '', accessibilityNeeds: false },
-      zone: { value: '', source: 'none', county: '', verifiedAt: null, notes: '', sourceUrl: '' },
-      destination: { label: '', address: '', transport: '' },
-      tasks: [],
+      activeProfileId: 'default',
+      profiles: {
+        default: {
+          household: { people: 2, infants: 0, days: 7, pets: false, petCount: 0, hasVehicle: true, medicalNeeds: false, county: '', accessibilityNeeds: false },
+          zone: { value: '', source: 'none', county: '', verifiedAt: null, notes: '', sourceUrl: '' },
+          destination: { label: '', address: '', transport: '' },
+          tasks: [],
+        },
+      },
+      updatedAt: '2026-10-19T12:00:00.000Z',
     },
   }));
 

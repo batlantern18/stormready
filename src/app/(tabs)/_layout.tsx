@@ -20,7 +20,6 @@ export default function TabLayout() {
     }}>
       <Tabs.Screen name="index" options={{ title: 'Home', tabBarAccessibilityLabel: 'Home', tabBarIcon: ({ color, focused }) => <TabIcon symbol="⌂" color={color} focused={focused} /> }} />
       <Tabs.Screen name="plan" options={{ title: 'Prepare', tabBarAccessibilityLabel: 'Prepare, your household plan', tabBarIcon: ({ color, focused }) => <TabIcon symbol="✓" color={color} focused={focused} /> }} />
-      <Tabs.Screen name="map" options={{ title: 'Map', tabBarAccessibilityLabel: 'Map, shelters and your zone', tabBarIcon: ({ color, focused }) => <TabIcon symbol="⌖" color={color} focused={focused} /> }} />
       <Tabs.Screen name="updates" options={{ title: 'Updates', tabBarAccessibilityLabel: 'Updates, current weather and safety alerts', tabBarIcon: ({ color, focused }) => <TabIcon symbol="!" color={color} focused={focused} /> }} />
       <Tabs.Screen name="settings" options={{ title: 'Settings', tabBarAccessibilityLabel: 'Settings, privacy and reminders', tabBarIcon: ({ color, focused }) => <TabIcon symbol="⚙" color={color} focused={focused} /> }} />
     </Tabs>

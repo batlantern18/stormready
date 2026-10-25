@@ -2,7 +2,7 @@ import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import { keys } from '../storage/keys';
 import { load, saveNow } from '../storage/store';
-import { configureNotificationHandler, ensureNotificationChannels, REMINDERS_CHANNEL_ID } from './channels';
+import { configureNotificationHandler, ensureNotificationChannels, REFILLS_CHANNEL_ID, REMINDERS_CHANNEL_ID } from './channels';
 import { DEFAULT_REMINDER_STATE, type ReminderState } from './types';
 
 export type ReminderResult = {
@@ -29,7 +29,12 @@ export const REMINDER_CONTENT = {
   zone: {
     title: 'Recheck your evacuation zone',
     body: 'Zones and orders can change. Verify yours with your local emergency authority.',
-    data: { route: '/(tabs)/map' },
+    data: { route: '/medical' },
+  },
+  refill: {
+    title: 'A refill is coming up',
+    body: 'A medication you added is close to its refill date. Open the medical plan to check.',
+    data: { route: '/medical' },
   },
 } as const;
 
@@ -63,8 +68,12 @@ export async function enableReminders(now = new Date()): Promise<ReminderResult>
       return { enabled: false, reason: 'denied', state };
     }
 
-    // Replace any prior schedule so identifiers never duplicate.
-    await cancelIdentifiers(previous.identifiers);
+    // Replace any prior schedule so identifiers never duplicate. The refill
+    // reminder is independent: the main toggle must not cancel it (F03).
+    await cancelIdentifiers({
+      checklist: previous.identifiers.checklist,
+      zone: previous.identifiers.zone,
+    });
     const checklist = await Notifications.scheduleNotificationAsync({
       content: REMINDER_CONTENT.checklist,
       trigger: {
@@ -91,7 +100,7 @@ export async function enableReminders(now = new Date()): Promise<ReminderResult>
     scheduled.push(zone);
     const state: ReminderState = {
       enabled: true,
-      identifiers: { checklist, zone },
+      identifiers: { checklist, zone, rotation: previous.identifiers.rotation },
       updatedAt: now.toISOString(),
     };
     await saveNow(keys.notifications, state);
@@ -107,8 +116,98 @@ export async function enableReminders(now = new Date()): Promise<ReminderResult>
 
 export async function disableReminders(now = new Date()): Promise<ReminderState> {
   const previous = await loadReminderState();
-  await cancelIdentifiers(previous.identifiers);
-  const state: ReminderState = { enabled: false, identifiers: {}, updatedAt: now.toISOString() };
+  // Only the checklist/zone pair belongs to this toggle; an opted-in refill
+  // reminder keeps its schedule.
+  await cancelIdentifiers({
+    checklist: previous.identifiers.checklist,
+    zone: previous.identifiers.zone,
+  });
+  const state: ReminderState = {
+    enabled: false,
+    identifiers: { rotation: previous.identifiers.rotation },
+    updatedAt: now.toISOString(),
+  };
   await saveNow(keys.notifications, state);
   return state;
+}
+
+/**
+ * Opt-in medication refill reminder (the plan's `rotation` identifier key).
+ * Turns a state change into one call: pass the earliest refill ISO date to
+ * schedule a single DATE-trigger nudge on that day, or `null` to cancel it.
+ * The reminder never fires for a date that has already passed.
+ */
+export async function setRefillReminder(earliestRefillIso: string | null, now = new Date()): Promise<ReminderState> {
+  const previous = await loadReminderState();
+  const withoutRotation = (): ReminderState => ({
+    enabled: previous.enabled,
+    identifiers: {
+      checklist: previous.identifiers.checklist,
+      zone: previous.identifiers.zone,
+    },
+    updatedAt: now.toISOString(),
+  });
+
+  if (Platform.OS === 'web') return previous;
+
+  try {
+    configureNotificationHandler();
+    await ensureNotificationChannels();
+    // Replacing, not stacking: an off toggle or a moved date starts clean.
+    if (previous.identifiers.rotation) {
+      await Notifications.cancelScheduledNotificationAsync(previous.identifiers.rotation).catch(() => {});
+    }
+
+    if (!earliestRefillIso) {
+      const state = withoutRotation();
+      await saveNow(keys.notifications, state);
+      return state;
+    }
+
+    const permission = await Notifications.getPermissionsAsync();
+    if (!permission.granted) {
+      const state = withoutRotation();
+      await saveNow(keys.notifications, state);
+      return state;
+    }
+
+    const when = refillTriggerDate(earliestRefillIso, now);
+    if (!when) {
+      const state = withoutRotation();
+      await saveNow(keys.notifications, state);
+      return state;
+    }
+
+    const identifier = await Notifications.scheduleNotificationAsync({
+      content: REMINDER_CONTENT.refill,
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.DATE,
+        date: when,
+        channelId: REFILLS_CHANNEL_ID,
+      },
+    });
+    const state: ReminderState = {
+      enabled: previous.enabled,
+      identifiers: { checklist: previous.identifiers.checklist, zone: previous.identifiers.zone, rotation: identifier },
+      updatedAt: now.toISOString(),
+    };
+    await saveNow(keys.notifications, state);
+    return state;
+  } catch {
+    // Never leave a scheduled nudge without a saved identifier for it.
+    await cancelIdentifiers({ rotation: previous.identifiers.rotation });
+    const state = withoutRotation();
+    await saveNow(keys.notifications, state).catch(() => {});
+    return state;
+  }
+}
+
+/** YYYY-MM-DD becomes 09:00 local on that day; other ISO strings are used as-is. */
+function refillTriggerDate(iso: string, now: Date): Date | null {
+  const trimmed = iso.trim();
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? new Date(`${trimmed}T09:00:00`) : new Date(trimmed);
+  if (Number.isNaN(date.getTime())) return null;
+  // Already due or overdue: the card itself carries that message, so no nudge.
+  if (date.getTime() <= now.getTime()) return null;
+  return date;
 }

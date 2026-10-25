@@ -24,7 +24,7 @@ describe('httpFetch', () => {
     globalThis.fetch = jest.fn(async () => response({ ok: true })) as unknown as typeof fetch;
     await httpFetch('https://example.gov/data');
     const [, init] = (globalThis.fetch as jest.Mock).mock.calls[0];
-    expect(init.headers['User-Agent']).toContain('StormReady/1.1');
+    expect(init.headers['User-Agent']).toContain('StormReady/1.2');
     expect(init.headers.Accept).toBe('application/json');
     expect(init.method).toBe('GET');
   });

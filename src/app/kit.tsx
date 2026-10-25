@@ -1,18 +1,22 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Linking, Share, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { calculateKit } from '../kit/calculator';
 import { CATEGORY_LABELS, CATEGORY_ORDER } from '../kit/catalog';
 import { formatQuantity, householdSummary, kitToText } from '../kit/format';
+import { coverageFor } from '../inventory/model';
 import { usePlan } from '../plan';
 import { Action, Body, Card, Header, MotionPressable as Pressable, Page, Pill, Row } from '../ui';
 import { useAppTheme } from '../theme';
+import { useT } from '../i18n';
 
 export default function KitScreen() {
   const plan = usePlan();
   const router = useRouter();
   const { colors } = useAppTheme();
-  const lines = calculateKit(plan.household);
+  const { t } = useT();
+  const lines = calculateKit(plan.household, plan.medical, plan.communication);
+  const coverage = useMemo(() => coverageFor(lines, plan.inventory), [lines, plan.inventory]);
 
   const share = async () => {
     await Share.share({
@@ -44,6 +48,34 @@ export default function KitScreen() {
         <View style={{ flex: 1 }}><Action title="Share kit list" onPress={() => void share()} /></View>
         <View style={{ flex: 1 }}><Action title="Edit household" kind="secondary" onPress={() => router.dismissTo('/(tabs)/plan')} /></View>
       </View>
+    </Card>
+
+    {/* F01 — kit coverage against what the household actually owns. */}
+    <Card>
+      <Row style={{ alignItems: 'flex-start' }}>
+        <View style={{ flex: 1, gap: 3 }}>
+          <Text style={[styles.summaryLabel, { color: colors.tealDark }]}>{t('kit.coverage.tag')}</Text>
+          <Text style={[styles.category, { color: colors.onSurface }]}>{t('kit.coverage.title')}</Text>
+        </View>
+        <Pill tone="blue">{t('kit.coverage.tracked', { count: Object.keys(plan.inventory.entries).length })}</Pill>
+      </Row>
+      {coverage.map(line => <View key={line.itemId} style={{ gap: 3, paddingVertical: 6 }}>
+        <Row style={{ gap: 10 }}>
+          <Text style={{ flex: 1, color: colors.ink, fontWeight: '700', fontSize: 14 }}>
+            {line.itemId === 'water' ? t('inventory.coverage.water') : t('inventory.coverage.food')}
+          </Text>
+          <Text style={{ color: line.covered ? colors.success : colors.amber, fontWeight: '800', fontSize: 12 }}>
+            {line.covered ? t('inventory.coverage.covered') : t('inventory.coverage.missing', { owned: line.owned, required: line.required })}
+          </Text>
+        </Row>
+        <View style={{ height: 7, borderRadius: 8, backgroundColor: colors.surfaceContainerHigh, overflow: 'hidden' }}>
+          <View style={{ width: `${Math.min(100, line.percent ?? 0)}%`, height: 7, borderRadius: 8, backgroundColor: line.covered ? colors.success : colors.primary }} />
+        </View>
+      </View>)}
+      <Body style={{ fontSize: 12 }}>{t('kit.coverage.body')}</Body>
+      <Row style={{ gap: 9 }}>
+        <View style={{ flex: 1 }}><Action title={t('kit.coverage.open')} kind="secondary" onPress={() => router.push('/inventory')} /></View>
+      </Row>
     </Card>
 
     {CATEGORY_ORDER.map(category => {

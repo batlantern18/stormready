@@ -5,11 +5,14 @@ import { httpJson } from '../../net/http';
 import { keys } from '../../storage/keys';
 import { load, save } from '../../storage/store';
 import type { AlertItem, AlertSnapshot } from '../../alerts';
+import type { AlertSnapshotMap } from '../../storage/keys';
 import { Action, Body, Card, Field, Header, Page, Pill, Row } from '../../ui';
 import { useAppTheme } from '../../theme';
+import { usePlan } from '../../plan';
 
 export default function Updates() {
   const { colors } = useAppTheme();
+  const { profileId } = usePlan();
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
   const [state, setState] = useState<'idle'|'loading'|'success'|'error'|'mexico'>('idle');
   const [checked, setChecked] = useState<string>('');
@@ -20,7 +23,8 @@ export default function Updates() {
   const [showingSavedCopy, setShowingSavedCopy] = useState(false);
   const [snapshotCountry, setSnapshotCountry] = useState<'US' | 'MX' | null>(null);
   React.useEffect(() => {
-    load(keys.alerts).then(snapshot => {
+    load(keys.alerts).then(map => {
+      const snapshot = (map as AlertSnapshotMap)[profileId];
       if (!snapshot) return;
       setAlerts(snapshot.alerts);
       setAlertPoint(snapshot.point);
@@ -35,7 +39,10 @@ export default function Updates() {
   const storeSnapshot = (snapshot: AlertSnapshot) => {
     setSnapshotAvailable(true);
     setSnapshotCountry(snapshot.countryCode);
-    save(keys.alerts, snapshot);
+    void (async () => {
+      const map = await load(keys.alerts).catch(() => ({}) as AlertSnapshotMap);
+      await save(keys.alerts, { ...(map ?? {}), [profileId]: snapshot });
+    })();
   };
   const checkCoordinates = async (latitude: number, longitude: number, resolvedCountry?: string) => {
     setAlertPoint({ latitude, longitude });
@@ -54,7 +61,7 @@ export default function Updates() {
       {
         headers: { Accept: 'application/geo+json' },
         timeoutMs: 20_000,
-        userAgent: 'StormReady/1.1 (weather alert check)',
+        userAgent: 'StormReady/1.2 (weather alert check)',
       },
     ).catch(() => { throw new Error('The alert service could not be reached.'); });
     const checkedAt = new Date().toLocaleString();
@@ -89,7 +96,7 @@ export default function Updates() {
         {
           headers: { 'Accept-Language': 'en' },
           timeoutMs: 20_000,
-          userAgent: 'StormReady/1.1 (weather alert address lookup)',
+          userAgent: 'StormReady/1.2 (weather alert address lookup)',
         },
       ).catch(() => { throw new Error('Address lookup is unavailable. Check your connection and try again.'); });
       const result = results[0];

@@ -1,6 +1,6 @@
 {
   "name": "stormready",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "main": "expo-router/entry",
   "scripts": {
@@ -20,12 +20,16 @@
     "expo": "~58.0.16",
     "expo-blur": "~58.0.5",
     "expo-constants": "~58.0.12",
+    "expo-document-picker": "~58.0.4",
     "expo-file-system": "~58.0.9",
     "expo-linking": "~58.0.13",
     "expo-location": "~58.0.18",
     "expo-notifications": "~58.1.5",
     "expo-router": "~58.0.24",
+    "expo-secure-store": "~58.0.2",
+    "expo-sharing": "~58.0.19",
     "expo-status-bar": "~58.0.3",
+    "expo-system-ui": "~58.0.6",
     "expo-updates": "~58.0.17",
     "react": "19.3.0",
     "react-dom": "19.3.0",
@@ -45,9 +49,9 @@
     "@types/react": "~19.3.0",
     "eslint": "^9.0.0",
     "eslint-config-expo": "~58.0.4",
-    "typescript": "~6.0.3",
     "jest": "~30.5.2",
-    "jest-expo": "~58.0.11"
+    "jest-expo": "~58.0.11",
+    "typescript": "~6.0.3"
   },
   "allowScripts": {
     "unrs-resolver@1.12.2": true
@@ -57,6 +61,9 @@
     "setupFiles": [
       "<rootDir>/jest.setup.js"
     ],
+    "moduleNameMapper": {
+      "\\.(jpg|jpeg|png|gif|svg|webp)$": "<rootDir>/__mocks__/asset-mock.js"
+    },
     "testMatch": [
       "**/__tests__/**/*.test.ts?(x)"
     ],
@@ -69,7 +76,7 @@
     ],
     "coverageThreshold": {
       "global": {
-        "statements": 60
+        "statements": 65
       },
       "./src/kit/": {
         "statements": 80
@@ -79,6 +86,30 @@
       },
       "./src/zone/": {
         "statements": 80
+      },
+      "./src/inventory/": {
+        "statements": 80
+      },
+      "./src/gobag/": {
+        "statements": 80
+      },
+      "./src/medical/": {
+        "statements": 80
+      },
+      "./src/comms/": {
+        "statements": 80
+      },
+      "./src/scenarios/": {
+        "statements": 80
+      },
+      "./src/readiness/": {
+        "statements": 80
+      },
+      "./src/transfer/": {
+        "statements": 80
+      },
+      "./src/i18n/": {
+        "statements": 95
       }
     }
   }

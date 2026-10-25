@@ -54,6 +54,10 @@ jest.mock('react-native-reanimated', () => {
     FadeOut: transition(),
     FadeInDown: transition(),
     FadeOutDown: transition(),
+    FadeInUp: transition(),
+    FadeOutUp: transition(),
+    FadeInRight: transition(),
+    FadeOutLeft: transition(),
     Layout: transition(),
     Pressable,
   };

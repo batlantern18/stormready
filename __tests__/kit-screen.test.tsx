@@ -1,4 +1,5 @@
 import React from 'react';
+import { DEFAULT_PROFILE_PLAN } from '../src/plan-schema';
 import { Share, Text } from 'react-native';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -48,10 +49,18 @@ async function seedPlan(household: Record<string, unknown> = HOUSEHOLD) {
     savedAt: '2026-10-19T12:00:00.000Z',
     data: {
       onboarded: true,
-      household,
-      zone: { value: '', source: 'none', county: '', verifiedAt: null, notes: '', sourceUrl: '' },
-      destination: { label: '', address: '', transport: '' },
-      tasks: [],
+      activeProfileId: 'default',
+      profiles: {
+        default: {
+          // Match what a migrated v1.1 document looks like: every v1.2 section present.
+          ...DEFAULT_PROFILE_PLAN,
+          household,
+          zone: { value: '', source: 'none', county: '', verifiedAt: null, notes: '', sourceUrl: '', country: 'US' },
+          destination: { label: '', address: '', transport: '' },
+          tasks: [],
+        },
+      },
+      updatedAt: '2026-10-19T12:00:00.000Z',
     },
   }));
 }
@@ -99,7 +108,7 @@ describe('kit screen', () => {
     await seedPlan();
     await renderKit();
 
-    await waitFor(() => expect(screen.getByText('Drinking water')).toBeTruthy());
+    await waitFor(() => expect(screen.getAllByText("Drinking water").length).toBeGreaterThanOrEqual(1));
     expect(screen.getByText('14 gal')).toBeTruthy();
     expect(screen.getByText('Basis: 2 people × 7 days × 1 gallon per person per day')).toBeTruthy();
     expect(screen.getByLabelText('Open source: Ready.gov — Water')).toBeTruthy();
@@ -108,7 +117,7 @@ describe('kit screen', () => {
   it('shares a plain-text kit list through the system share sheet', async () => {
     await seedPlan();
     await renderKit();
-    await waitFor(() => expect(screen.getByText('Drinking water')).toBeTruthy());
+    await waitFor(() => expect(screen.getAllByText("Drinking water").length).toBeGreaterThanOrEqual(1));
 
     await fireEvent.press(screen.getByText('Share kit list'));
     await waitFor(() => expect(Share.share).toHaveBeenCalled());
@@ -139,7 +148,7 @@ describe('kit screen', () => {
   it('states that the list is a planning baseline, not an official requirement', async () => {
     await seedPlan();
     await renderKit();
-    await waitFor(() => expect(screen.getByText('Drinking water')).toBeTruthy());
+    await waitFor(() => expect(screen.getAllByText("Drinking water").length).toBeGreaterThanOrEqual(1));
     expect(screen.getByText(/This is a planning baseline, not an official requirement/)).toBeTruthy();
   });
 });

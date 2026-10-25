@@ -5,11 +5,13 @@ import { OnboardingPage } from '../../onboarding/ui';
 import { usePlan } from '../../plan';
 import { Action, Body, Card, Field, Stepper, ToggleRow } from '../../ui';
 import { useAppTheme } from '../../theme';
+import { useT } from '../../i18n';
 
 export default function HouseholdStep() {
   const plan = usePlan();
   const router = useRouter();
   const { colors } = useAppTheme();
+  const { t } = useT();
   const { household } = plan;
   return <OnboardingPage
     step={2}
@@ -26,6 +28,7 @@ export default function HouseholdStep() {
       <Stepper label="Infants" detail="Under 2 years old. Formula and feeding supplies are added to your kit." value={household.infants} min={0} max={20} onChange={infants => plan.setHousehold({ infants })} />
       <Stepper label="Days of supplies" detail="Seven days is the shortest planning horizon in StormReady." value={household.days} min={7} max={30} onChange={days => plan.setHousehold({ days })} />
       <Field label="County or local area (optional)" value={household.county} onChangeText={county => plan.setHousehold({ county })} placeholder="e.g. Hillsborough County" />
+      <Field label="State (optional)" value={household.state} onChangeText={state => plan.setHousehold({ state: state.slice(0, 40) })} placeholder="e.g. Florida" />
     </Card>
 
     <Card>
@@ -38,7 +41,7 @@ export default function HouseholdStep() {
     </Card>
 
     <View style={styles.note}>
-      <Body>StormReady does not ask for location permission during setup. Location is only requested when you choose a location action on the Map or Updates screen.</Body>
+      <Body>StormReady does not ask for location permission during setup. Location is only requested when you choose a location action on the Updates screen.</Body>
       <Text style={[styles.footnote, { color: colors.muted }]}>Water guidance uses a planning baseline of one gallon per person per day.</Text>
     </View>
   </OnboardingPage>;

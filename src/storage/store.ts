@@ -115,7 +115,7 @@ export async function load<T>(spec: KeySpec<T>): Promise<T> {
     if (parsed.version < spec.version) {
       if (!spec.migrate) return parsed.data as T;
       try {
-        const migrated = spec.migrate(parsed.data, parsed.version);
+        const migrated = spec.migrate(parsed.data, parsed.version, new Date().toISOString());
         await writeNow(spec, migrated);
         return migrated;
       } catch {
@@ -132,7 +132,7 @@ export async function load<T>(spec: KeySpec<T>): Promise<T> {
       try {
         const parsedLegacy = spec.parseLegacy ? spec.parseLegacy(legacyRaw) : JSON.parse(legacyRaw);
         const migrated = spec.migrateLegacy
-          ? spec.migrateLegacy(parsedLegacy)
+          ? spec.migrateLegacy(parsedLegacy, new Date().toISOString())
           : parsedLegacy as T;
         await writeNow(spec, migrated);
         return migrated;

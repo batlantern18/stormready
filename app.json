@@ -3,10 +3,10 @@
     "name": "StormReady",
     "slug": "stormready",
     "scheme": "stormready",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
-    "runtimeVersion": "1.1.0",
+    "runtimeVersion": "1.2.0",
     "updates": {
       "url": "https://u.expo.dev/da0fc52f-5fc0-453d-94dc-90c1888bbdec",
       "checkAutomatically": "ON_LOAD"
@@ -21,10 +21,13 @@
         {
           "locationWhenInUsePermission": "Use your location to find nearby shelters and check local weather alerts. Location stays on this device."
         }
-      ]
+      ],
+      "expo-secure-store",
+      "expo-sharing"
     ],
     "android": {
       "package": "org.stormready.app",
+      "versionCode": 2,
       "adaptiveIcon": {
         "backgroundColor": "#F3F7F2",
         "foregroundImage": "./assets/android-icon-foreground.png",

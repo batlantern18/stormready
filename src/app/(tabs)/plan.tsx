@@ -1,45 +1,83 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Linking, Text, View } from 'react-native';
 import Animated, { FadeIn, FadeOut, ReduceMotion } from 'react-native-reanimated';
 import { useRouter } from 'expo-router';
 import { usePlan } from '../../plan';
 import { calculateKit } from '../../kit/calculator';
 import { formatGallons } from '../../kit/format';
-import { visibleTasks } from '../../plan-schema';
+import { earliestRefill, refrigeratedCount } from '../../medical/model';
+import { commsCompletion } from '../../comms/model';
+import { visibleTasks, effectiveMedicalNeeds, isMedicalPlanEmpty } from '../../plan-schema';
 import { zoneSummary } from '../../zone/verification';
+import { BAG_TEMPLATES } from '../../gobag/templates';
+import { daysSinceDrill } from '../../scenarios/model';
 import { Action, Body, Card, Field, Header, Label, MotionPressable as Pressable, Page, Pill, ProgressBar, Row, Stepper, ToggleRow } from '../../ui';
 import { useAppTheme } from '../../theme';
+import { useT } from '../../i18n';
+import { formatDateShort } from '../../i18n/format';
+
+/** US states (two-letter; season logic matches two-letter codes directly). */
+const US_STATES = [
+  'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA', 'HI', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME',
+  'MD', 'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ', 'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA',
+  'RI', 'SC', 'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY',
+];
 
 export default function MyPlan() {
   const plan = usePlan();
   const router = useRouter();
   const { colors } = useAppTheme();
+  const { t, locale } = useT();
   const { household } = plan;
   const visible = visibleTasks(plan.tasks, household);
   const done = visible.filter(t => t.done).length;
   const percent = visible.length ? Math.round(done / visible.length * 100) : 0;
-  const kit = calculateKit(household);
+  const kit = calculateKit(household, plan.medical, plan.communication);
   const water = kit.find(line => line.id === 'water')?.quantity ?? 0;
   const zone = zoneSummary(plan.zone);
+  const medicalOpen = effectiveMedicalNeeds(household, plan.medical);
+  const refill = useMemo(() => earliestRefill(plan.medical), [plan.medical]);
+  const commsDone = commsCompletion(plan.communication);
+  const drillDays = daysSinceDrill(plan.drills.results, new Date());
+  const refrigeratedMedCount = refrigeratedCount(plan.medical);
 
   return <Page>
     <Header eyebrow="Your household plan" title="Make room for peace of mind." subtitle="A few practical details help turn preparedness into a plan that fits your household." />
     <Card style={{ backgroundColor: colors.navy, borderColor: colors.navy }}>
       <Row><View style={{ gap: 4 }}><Text style={{ color: colors.lime, fontSize: 10, fontWeight: '800', letterSpacing: 1 }}>YOUR CHECKLIST</Text><Text style={{ color: '#fff', fontSize: 20, fontWeight: '800' }}>{done} of {visible.length} steps complete</Text></View><Text style={{ color: '#fff', fontSize: 25, fontWeight: '800' }}>{percent}%</Text></Row>
       <ProgressBar value={done} max={visible.length} label="Checklist progress" tint={colors.lime} />
-      <Text style={{ color: colors.secondaryContainer, fontSize: 12, lineHeight: 18 }}>Your progress saves automatically and stays on this device.</Text>
+      <Text style={{ color: colors.forestMuted, fontSize: 12, lineHeight: 18 }}>Your progress saves automatically and stays on this device.</Text>
     </Card>
 
     <Card>
       <Row><View style={{ flex: 1, gap: 3 }}><Label>Household details</Label><Body>Used to personalize your kit and checklist.</Body></View><Pill>PRIVATE</Pill></Row>
       <Field label="County or local area" value={household.county} onChangeText={county => plan.setHousehold({ county })} placeholder="e.g. Hillsborough County" />
+      {household.country === 'US' ? <>
+        <Text style={{ color: colors.onSurface, fontSize: 14, fontWeight: '600', marginTop: 10 }}>{t('plan.country.stateUS')}</Text>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+          {US_STATES.map(usState => <Pressable
+            key={usState}
+            accessibilityRole="button"
+            accessibilityState={{ selected: household.state.toUpperCase() === usState }}
+            onPress={() => plan.setHousehold({ state: usState })}
+            style={({ pressed }) => [{ minHeight: 38, minWidth: 64, paddingHorizontal: 10, borderRadius: 10, borderWidth: 1, borderColor: household.state.toUpperCase() === usState ? colors.teal : colors.line, backgroundColor: household.state.toUpperCase() === usState ? colors.mint : colors.paper, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.85 : 1 }]}
+          >
+            <Text style={{ color: colors.ink, fontWeight: '700', fontSize: 12 }}>{usState}</Text>
+          </Pressable>)}
+        </View>
+      </> : <Field label={t('plan.country.stateMX')} value={household.state} onChangeText={state => plan.setHousehold({ state })} placeholder={t('plan.country.stateMX.placeholder')} />}
       <Stepper label="People" detail="Everyone who would evacuate together." value={household.people} min={1} max={20} onChange={people => plan.setHousehold({ people })} />
       <Stepper label="Infants" value={household.infants} min={0} max={20} onChange={infants => plan.setHousehold({ infants })} />
       <Stepper label="Days to prepare" detail="Seven days is the shortest planning horizon." value={household.days} min={7} max={30} onChange={days => plan.setHousehold({ days })} />
       <ToggleRow title="We have pets or service animals" value={household.pets} onPress={() => plan.setHousehold({ pets: !household.pets })} />
       {household.pets ? <Stepper label="Number of pets" value={household.petCount} min={1} max={20} onChange={petCount => plan.setHousehold({ petCount })} /> : null}
       <ToggleRow title="We have access to a vehicle" value={household.hasVehicle} onPress={() => plan.setHousehold({ hasVehicle: !household.hasVehicle })} />
-      <ToggleRow title="Someone has medical needs" value={household.medicalNeeds} onPress={() => plan.setHousehold({ medicalNeeds: !household.medicalNeeds })} />
+      <ToggleRow
+        title="Someone has medical needs"
+        detail={medicalOpen && !isMedicalPlanEmpty(plan.medical) ? 'A medical plan is active — open it to keep it current.' : undefined}
+        value={medicalOpen}
+        onPress={() => router.push('/medical')}
+      />
       <ToggleRow title="Someone has accessibility needs" value={household.accessibilityNeeds} onPress={() => plan.setHousehold({ accessibilityNeeds: !household.accessibilityNeeds })} />
     </Card>
 
@@ -58,13 +96,87 @@ export default function MyPlan() {
         <Pill tone={zone.stale ? 'amber' : zone.value ? 'green' : 'blue'}>{zone.value ? (zone.stale ? 'RECHECK' : 'RECORDED') : 'NOT SET'}</Pill>
       </Row>
       {zone.warning ? <Text accessibilityRole="alert" style={{ color: colors.warning, fontSize: 12, lineHeight: 17, fontWeight: '600' }}>{zone.warning}</Text> : null}
-      <Body>{plan.zone.source === 'florida-lookup' ? 'Florida addresses can be checked automatically from Map. Manual verification is available everywhere else.' : 'Enter the zone published by your county or local emergency authority from the Map screen. Automatic lookup is available for Florida addresses.'}</Body>
-      <Action title="Review zone on Map" kind="secondary" onPress={() => router.push('/(tabs)/map')} />
+      <Body>{plan.zone.source === 'florida-lookup' ? 'Florida addresses can be checked automatically. Manual verification is available everywhere else.' : 'Enter the zone published by your county or local emergency authority. Automatic lookup is available for Florida addresses.'}</Body>
+    </Card>
+
+    {/* F03 — the compact Medical card: what's recorded and what the kit added. */}
+    <Card>
+      <Row style={{ alignItems: 'flex-start' }}>
+        <View style={{ flex: 1, gap: 3 }}>
+          <Label>{t('plan.medical.title')}</Label>
+          <Text style={{ color: colors.ink, fontSize: 16, fontWeight: '800' }}>
+            {t('plan.medical.summary', {
+              medications: plan.medical.medications.length,
+              devices: plan.medical.devices.length,
+            })}
+          </Text>
+          <Body style={{ fontSize: 12 }}>
+            {refill ? `${t('plan.medical.refill', { date: formatDateShort(refill, locale) })}` : t('plan.medical.noRefill')}
+          </Body>
+        </View>
+        <Pill tone={refrigeratedMedCount ? 'blue' : medicalOpen ? 'green' : 'blue'}>{t(refrigeratedMedCount ? 'plan.medical.coldTag' : medicalOpen ? 'plan.medical.recorded' : 'plan.medical.none')}</Pill>
+      </Row>
+      <Body style={{ fontSize: 12 }}>{t('plan.medical.body')}</Body>
+      <Row style={{ gap: 9 }}>
+        <View style={{ flex: 1 }}><Action title={t('plan.medical.open')} kind="secondary" onPress={() => router.push('/medical')} /></View>
+      </Row>
+    </Card>
+
+    {/* F04 — the compact Communication card with completion of the four parts. */}
+    <Card>
+      <Row style={{ alignItems: 'flex-start' }}>
+        <View style={{ flex: 1, gap: 3 }}>
+          <Label>{t('plan.comms.title')}</Label>
+          <Text style={{ color: colors.ink, fontSize: 16, fontWeight: '800' }}>
+            {commsDone}% {t('plan.comms.written')}
+          </Text>
+          <Body style={{ fontSize: 12 }}>
+            {plan.communication.contacts.length
+              ? t('plan.comms.contactsOnFile', { count: plan.communication.contacts.length })
+              : t('plan.comms.noContacts')}
+          </Body>
+        </View>
+        <Pill tone={commsDone === 100 ? 'green' : commsDone > 0 ? 'blue' : 'amber'}>{t('plan.comms.parts', { done: Math.round(commsDone / 25) })}</Pill>
+      </Row>
+      <Body style={{ fontSize: 12 }}>{t('plan.comms.body')}</Body>
+      <Row style={{ gap: 9 }}>
+        <View style={{ flex: 1 }}><Action title={t('plan.comms.open')} kind="secondary" onPress={() => router.push('/communication')} /></View>
+      </Row>
+    </Card>
+
+    {/* F02 + F08 — go-bags and practise entries. */}
+    <Card>
+      <Row style={{ gap: 9 }}>
+        <View style={{ flex: 1, gap: 3 }}>
+          <Label>{t('plan.gobags.title')}</Label>
+          <Text style={{ color: colors.ink, fontSize: 16, fontWeight: '800' }}>{t('plan.gobags.count', { count: plan.goBags.bags.length })}</Text>
+          <Body style={{ fontSize: 12 }}>{t('plan.gobags.body')}</Body>
+        </View>
+      </Row>
+      <Row style={{ gap: 9 }}>
+        <View style={{ flex: 1 }}><Action title={t('plan.gobags.open')} kind="secondary" onPress={() => router.push('/go-bags')} /></View>
+        <View style={{ flex: 1 }}><Action title={t('plan.inventory.open')} kind="quiet" onPress={() => router.push('/inventory')} /></View>
+      </Row>
+      <Body style={{ fontSize: 11 }}>{t('plan.gobags.templates', { count: Object.keys(BAG_TEMPLATES).length })}</Body>
+    </Card>
+
+    <Card style={{ backgroundColor: colors.mint, borderColor: colors.mint }}>
+      <Row style={{ alignItems: 'flex-start' }}>
+        <View style={{ flex: 1, gap: 3 }}>
+          <Text style={{ color: colors.tealDark, fontSize: 10, fontWeight: '800', letterSpacing: 0.8 }}>{t('plan.practise.tag')}</Text>
+          <Text style={{ color: colors.ink, fontSize: 16, fontWeight: '800' }}>
+            {drillDays === null ? t('plan.practise.never') : t('plan.practise.last', { days: drillDays })}
+          </Text>
+          <Body style={{ fontSize: 12, color: colors.tealDark }}>{t('plan.practise.body')}</Body>
+        </View>
+        <Pill>{t('plan.practise.minutes')}</Pill>
+      </Row>
+      <Action title={t('plan.practise.open')} kind="secondary" onPress={() => router.push('/drill')} />
     </Card>
 
     <Card><Row><View style={{ flex: 1, gap: 3 }}><Label>Preparedness checklist</Label><Body>Small steps add up. Tap to mark one complete.</Body></View><Pill>{done} / {visible.length}</Pill></Row>
       {visible.map((task, index) => <Pressable key={task.id} accessibilityRole="checkbox" accessibilityLabel={task.title} accessibilityHint={task.detail} accessibilityState={{ checked: task.done }} onPress={() => plan.toggleTask(task.id)} style={({ pressed }) => [{ minHeight: 44, flexDirection: 'row', alignItems: 'flex-start', gap: 12, paddingVertical: 14, borderTopWidth: index ? 1 : 0, borderColor: colors.line }, pressed && { opacity: 0.76 }]}>
-        <View style={{ width: 25, height: 25, marginTop: 1, borderRadius: 9, borderWidth: 1.5, borderColor: task.done ? colors.teal : colors.line, backgroundColor: task.done ? colors.teal : colors.paper, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff', fontWeight: '900', fontSize: 14 }}>{task.done ? '✓' : ''}</Text></View>
+        <View style={{ width: 25, height: 25, marginTop: 1, borderRadius: 9, borderWidth: 1.5, borderColor: task.done ? colors.teal : colors.line, backgroundColor: task.done ? colors.teal : colors.paper, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: colors.onPrimary, fontWeight: '900', fontSize: 14 }}>{task.done ? '✓' : ''}</Text></View>
         <View style={{ flex: 1, gap: 4 }}><Text style={{ fontSize: 14, fontWeight: '800', color: task.done ? colors.muted : colors.ink }}>{task.title}</Text><Text style={{ fontSize: 12, lineHeight: 18, color: colors.muted }}>{task.detail}</Text></View>
       </Pressable>)}
     </Card>
@@ -91,6 +203,21 @@ export default function MyPlan() {
       <Body>Assistance registries and services vary by location. Contact your local emergency authority; this app does not register anyone for assistance.</Body>
       <Pressable accessibilityRole="link" onPress={() => Linking.openURL('https://www.gob.mx/proteccioncivil').catch(() => {})}><Text style={{ color: colors.tealDark, fontWeight: '800' }}>Mexico Protección Civil ↗</Text></Pressable>
       <Pressable accessibilityRole="link" onPress={() => Linking.openURL('https://www.ready.gov/').catch(() => {})}><Text style={{ color: colors.tealDark, fontWeight: '800' }}>U.S. Ready.gov ↗</Text></Pressable>
+    </Card>
+
+    {/* F06 — the plan-transfer entry from the Plan footer (share or import). */}
+    <Card>
+      <Row style={{ alignItems: 'flex-start' }}>
+        <View style={{ flex: 1, gap: 3 }}>
+          <Label>{t('plan.transfer.title')}</Label>
+          <Body style={{ fontSize: 12 }}>{t('plan.transfer.body')}</Body>
+        </View>
+        <Pill tone="blue">NO UPLOAD</Pill>
+      </Row>
+      <Row style={{ gap: 9 }}>
+        <View style={{ flex: 1 }}><Action title={t('plan.transfer.share')} kind="secondary" onPress={() => router.push('/settings/transfer')} /></View>
+        <View style={{ flex: 1 }}><Action title={t('plan.transfer.import')} kind="secondary" onPress={() => router.push('/settings/transfer')} /></View>
+      </Row>
     </Card>
   </Page>;
 }

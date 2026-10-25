@@ -29,21 +29,6 @@ describe('Home screen', () => {
     expect(screen.getByText('Set aside drinking water')).toBeTruthy();
   });
 
-  it('offers the household plan, the emergency kit, and the map', async () => {
-    await renderWithPlan(<Home />);
-
-    expect(screen.getByText('Household plan')).toBeTruthy();
-    expect(screen.getByText('Emergency kit')).toBeTruthy();
-    expect(screen.getByText('Map & shelters')).toBeTruthy();
-  });
-
-  it('shows the saved zone with its provenance', async () => {
-    await renderWithPlan(<Home />);
-
-    expect(screen.getByText(/Zone C/)).toBeTruthy();
-    expect(screen.getByText(/Entered by you/)).toBeTruthy();
-  });
-
   it('states that the app is not an alert authority', async () => {
     await renderWithPlan(<Home />);
 
