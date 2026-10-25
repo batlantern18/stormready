@@ -94,16 +94,22 @@ describe('Settings screen', () => {
     expect(await screen.findByText(/Reminders are off/)).toBeTruthy();
   });
 
-  it('exports the saved plan as JSON through the share sheet', async () => {
+  it('points the share/import entries at the transfer screen (F06)', async () => {
     await renderWithPlan(<Settings />);
 
-    await fireEvent.press(screen.getByText('Export a copy of my plan'));
+    expect(screen.getByText('Share a copy')).toBeTruthy();
+    expect(screen.getByText('Import a plan')).toBeTruthy();
 
-    await waitFor(() => expect(Share.share).toHaveBeenCalled());
-    const payload = (Share.share as jest.Mock).mock.calls[0][0];
-    const parsed = JSON.parse(payload.message);
-    expect(parsed.household.people).toBe(2);
-    expect(parsed.zone.value).toBe('Zone C');
-    expect(parsed.exportedAt).toBeTruthy();
+    await fireEvent.press(screen.getByText('Share a copy'));
+    await fireEvent.press(screen.getByText('Import a plan'));
+    await fireEvent.press(screen.getByText('Privacy & data'));
+    await fireEvent.press(screen.getByText('Language'));
+  });
+
+  it('offers privacy and language controls in one place', async () => {
+    await renderWithPlan(<Settings />);
+
+    expect(screen.getByText('Privacy & data')).toBeTruthy();
+    expect(screen.getByText('Language')).toBeTruthy();
   });
 });

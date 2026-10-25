@@ -6,6 +6,7 @@ web-build/
 android/
 ios/
 stormready-scaffold/
+coverage/
 *.log
 
 # @generated expo-cli sync-2b81b286409207a5da26e14c78851eb30d8ccbdb
@@ -13,3 +14,5 @@ stormready-scaffold/
 
 expo-env.d.ts
 # @end expo-cli
+# Local release build artifacts (not part of the source)
+*.apk

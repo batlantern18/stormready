@@ -4,6 +4,7 @@ export type KitCategory =
   | 'water'
   | 'food'
   | 'health'
+  | 'medical'
   | 'power'
   | 'documents'
   | 'people'
@@ -21,6 +22,12 @@ export type KitLine = {
   unitPlural: string;
   basis: string;
   source: KitSource;
+  /** Source shown when the household's country is Mexico (F10). */
+  sourceMx?: KitSource;
+  /** Months a stored item stays good (F01); undefined = no maker's date. */
+  shelfLifeMonths?: number;
+  /** One-line rotation guidance (F01). */
+  rotationNote?: string;
   note?: string;
 };
 
@@ -34,6 +41,7 @@ export const CATEGORY_LABELS: Record<KitCategory, string> = {
   water: 'Water',
   food: 'Food',
   health: 'Health & first aid',
+  medical: 'Medical plan',
   power: 'Power & light',
   documents: 'Documents & money',
   people: 'People & communication',
@@ -45,6 +53,7 @@ export const CATEGORY_ORDER: KitCategory[] = [
   'water',
   'food',
   'health',
+  'medical',
   'power',
   'documents',
   'people',
@@ -52,7 +61,7 @@ export const CATEGORY_ORDER: KitCategory[] = [
   'access',
 ];
 
-const READY_GOV = {
+export const READY_GOV = {
   kit: { label: 'Ready.gov — Build a kit', url: 'https://www.ready.gov/kit' },
   water: { label: 'Ready.gov — Water', url: 'https://www.ready.gov/water' },
   food: { label: 'Ready.gov — Food', url: 'https://www.ready.gov/food' },
@@ -63,6 +72,17 @@ const READY_GOV = {
   disability: { label: 'Ready.gov — Disability & access needs', url: 'https://www.ready.gov/disability' },
   plan: { label: 'Ready.gov — Make a plan', url: 'https://www.ready.gov/plan' },
 } as const;
+
+/**
+ * F10: Mexican authorities for kit guidance. Every catalog line shows the
+ * source that matches the household's country — Ready.gov in the US,
+ * Protección Civil in Mexico. Adding finer per-item Mexican links later is a
+ * data change.
+ */
+export const MX_CIVIL_PROTECTION: KitSource = {
+  label: 'Protección Civil — kit guidance',
+  url: 'https://www.gob.mx/proteccioncivil',
+};
 
 export const KIT_CATALOG: KitItemDefinition[] = [
   {
@@ -75,6 +95,8 @@ export const KIT_CATALOG: KitItemDefinition[] = [
     quantity: household => household.people * household.days,
     basis: household => `${household.people} ${household.people === 1 ? 'person' : 'people'} × ${household.days} days × 1 gallon per person per day`,
     note: 'A planning baseline. Heat, pregnancy, illness, and medical needs can increase water needs.',
+    shelfLifeMonths: 12,
+    rotationNote: 'Rotate every 12 months. Freeze one jug, mark the date, and use the oldest first.',
   },
   {
     id: 'food',
@@ -86,6 +108,8 @@ export const KIT_CATALOG: KitItemDefinition[] = [
     quantity: household => household.people * household.days,
     basis: household => `${household.people} ${household.people === 1 ? 'person' : 'people'} × ${household.days} days of food your household can eat`,
     note: 'Include a manual can opener and foods that do not need refrigeration or cooking.',
+    shelfLifeMonths: 12,
+    rotationNote: 'Check dates twice a year and replace what you eat with fresh stock.',
   },
   {
     id: 'infant-supplies',
@@ -121,6 +145,8 @@ export const KIT_CATALOG: KitItemDefinition[] = [
     quantity: () => 1,
     basis: () => 'One household kit',
     note: 'Check expiration dates and add any items your household specifically needs.',
+    shelfLifeMonths: 24,
+    rotationNote: 'Check the kit’s expiry dates once a year and replace what expired.',
   },
   {
     id: 'masks',
@@ -161,6 +187,8 @@ export const KIT_CATALOG: KitItemDefinition[] = [
     source: READY_GOV.power,
     quantity: household => household.people,
     basis: household => `One spare set per flashlight × ${household.people} ${household.people === 1 ? 'person' : 'people'}`,
+    shelfLifeMonths: 24,
+    rotationNote: 'Batteries have a use-by date on the packaging. Test them when the clocks change.',
   },
   {
     id: 'radio',
@@ -233,6 +261,8 @@ export const KIT_CATALOG: KitItemDefinition[] = [
     quantity: household => household.petCount * household.days,
     basis: household => `${household.petCount} ${household.petCount === 1 ? 'pet' : 'pets'} × ${household.days} days`,
     note: 'Adjust portions for each animal’s size and needs, and include records, identification, and a carrier or leash.',
+    shelfLifeMonths: 12,
+    rotationNote: 'Rotate pet food every 12 months and check records when you visit the vet.',
   },
   {
     id: 'access-supplies',
@@ -247,3 +277,9 @@ export const KIT_CATALOG: KitItemDefinition[] = [
     note: 'Spare batteries, chargers, and supplies for mobility, hearing, vision, communication, or medical devices you rely on.',
   },
 ];
+
+// F10: assign the Mexican source to every catalog line. Lines can override
+// `sourceMx` individually later; today they all share the national authority.
+for (const item of KIT_CATALOG) {
+  item.sourceMx = MX_CIVIL_PROTECTION;
+}

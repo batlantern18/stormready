@@ -1,13 +1,27 @@
-import { migratePlanFromV1 } from '../src/storage/migrate';
-import { DEFAULT_PLAN, clampHousehold, isTaskRelevant, visibleTasks, type Household } from '../src/plan-schema';
+import {
+  DEFAULT_COMMUNICATION_PLAN,
+  DEFAULT_DRILL_STATE,
+  DEFAULT_GO_BAG_STATE,
+  DEFAULT_HOUSEHOLD,
+  DEFAULT_INVENTORY,
+  DEFAULT_MEDICAL_PLAN,
+  DEFAULT_PROFILE_ID,
+  DEFAULT_TASKS,
+  DEFAULT_TRAVEL_STATE,
+  DEFAULT_ZONE,
+  clampHousehold,
+  isTaskRelevant,
+  visibleTasks,
+  type Household,
+} from '../src/plan-schema';
+import { migratePlanFromV2, moveToProfileMap } from '../src/storage/migrate';
+import { LEGACY_PROFILE_ID } from '../src/storage/keys';
 
-function household(overrides: Partial<Household> = {}): Household {
-  return { ...DEFAULT_PLAN.household, ...overrides };
-}
-
-describe('migratePlanFromV1', () => {
-  it('imports a 1.0 plan without forcing onboarding', () => {
-    const plan = migratePlanFromV1({
+describe('migratePlanFromV2', () => {
+  it('imports a saved 1.1 plan into the default profile', () => {
+    const now = '2026-10-20T00:00:00.000Z';
+    const plan = migratePlanFromV2({
+      onboarded: true,
       household: {
         people: 4,
         infants: 1,
@@ -18,15 +32,19 @@ describe('migratePlanFromV1', () => {
         medicalNeeds: true,
         county: 'Miami-Dade',
         accessibilityNeeds: true,
-        zone: 'legacy-household-zone',
       },
       zone: 'Zone A',
       destination: { label: 'Aunt Ana', address: 'Orlando', transport: 'Drive' },
       tasks: [{ id: 'water', title: 'Water', detail: 'Store water', category: 'Supplies', done: true }],
-    });
+    }, now);
 
     expect(plan.onboarded).toBe(true);
-    expect(plan.household).toMatchObject({
+    expect(plan.activeProfileId).toBe(LEGACY_PROFILE_ID);
+    expect(Object.keys(plan.profiles)).toEqual([LEGACY_PROFILE_ID]);
+    expect(plan.updatedAt).toBe(now);
+
+    const profile = plan.profiles[LEGACY_PROFILE_ID];
+    expect(profile.household).toMatchObject({
       people: 4,
       infants: 1,
       days: 10,
@@ -36,54 +54,84 @@ describe('migratePlanFromV1', () => {
       medicalNeeds: true,
       accessibilityNeeds: true,
       county: 'Miami-Dade',
+      country: 'US',
     });
-    expect(plan.destination).toEqual({ label: 'Aunt Ana', address: 'Orlando', transport: 'Drive' });
-    expect(plan.tasks).toEqual([{ id: 'water', title: 'Water', detail: 'Store water', category: 'Supplies', done: true }]);
+    expect(profile.zone).toMatchObject({ value: 'Zone A', source: 'manual' });
+    expect(profile.destination).toEqual({ label: 'Aunt Ana', address: 'Orlando', transport: 'Drive' });
+    expect(profile.tasks).toEqual([{ id: 'water', title: 'Water', detail: 'Store water', category: 'Supplies', done: true }]);
   });
 
-  it('labels a plain 1.0 zone as manually entered and unverified', () => {
-    const plan = migratePlanFromV1({ household: { county: 'Harris' }, zone: '  Zone 3  ' });
-    expect(plan.zone).toMatchObject({
+  it('starts every v1.2 feature document empty (R-MIG-3)', () => {
+    const plan = migratePlanFromV2({ household: { people: 2 } });
+    const profile = plan.profiles.default;
+    expect(profile.inventory).toEqual(DEFAULT_INVENTORY);
+    expect(profile.goBags).toEqual(DEFAULT_GO_BAG_STATE);
+    expect(profile.medical).toEqual(DEFAULT_MEDICAL_PLAN);
+    expect(profile.communication).toEqual(DEFAULT_COMMUNICATION_PLAN);
+    expect(profile.travel).toEqual(DEFAULT_TRAVEL_STATE);
+    expect(profile.drills).toEqual(DEFAULT_DRILL_STATE);
+  });
+
+  it('is pure: no clock reads inside (R-MIG-1)', () => {
+    const plan = migratePlanFromV2({ household: { people: 2 } }, '2026-05-01T00:00:00.000Z');
+    expect(plan.updatedAt).toBe('2026-05-01T00:00:00.000Z');
+  });
+
+  it('falls back to the default plan when the input is unusable', () => {
+    const plan = migratePlanFromV2(null);
+    expect(plan).toEqual({
+      ...{
+        onboarded: false,
+        activeProfileId: DEFAULT_PROFILE_ID,
+        profiles: {
+          [DEFAULT_PROFILE_ID]: {
+            household: DEFAULT_HOUSEHOLD,
+            zone: DEFAULT_ZONE,
+            destination: { label: '', address: '', transport: '' },
+            tasks: DEFAULT_TASKS,
+          },
+        },
+      },
+      profiles: {
+        [DEFAULT_PROFILE_ID]: {
+          household: DEFAULT_HOUSEHOLD,
+          zone: DEFAULT_ZONE,
+          destination: { label: '', address: '', transport: '' },
+          tasks: DEFAULT_TASKS,
+          inventory: { entries: {}, lastRotationAt: null },
+          goBags: { bags: [] },
+          medical: DEFAULT_MEDICAL_PLAN,
+          communication: DEFAULT_COMMUNICATION_PLAN,
+          travel: { trips: [] },
+          drills: { results: [] },
+        },
+      },
+      updatedAt: '',
+    });
+  });
+
+  it('labels a plain legacy 1.0 zone as manually entered and unverified', () => {
+    const plan = migratePlanFromV2({ household: { county: 'Harris' }, zone: '  Zone 3  ' });
+    expect(plan.profiles.default.zone).toMatchObject({
       value: 'Zone 3',
       source: 'manual',
       county: 'Harris',
       verifiedAt: null,
+      country: 'US',
     });
-    expect(plan.zone.notes).toContain('Verify the source');
-  });
-
-  it('uses a household zone when the top-level zone is missing', () => {
-    const plan = migratePlanFromV1({ household: { county: 'Bexar', zone: 'B' } });
-    expect(plan.zone.value).toBe('B');
-    expect(plan.zone.county).toBe('Bexar');
-  });
-
-  it('leaves an empty legacy zone unset', () => {
-    const plan = migratePlanFromV1({ household: { county: 'Travis' }, zone: '   ' });
-    expect(plan.zone).toMatchObject({ value: '', source: 'none', county: 'Travis', verifiedAt: null });
+    expect(plan.profiles.default.zone.notes).toContain('Verify the source');
   });
 
   it('clamps invalid household numbers into safe limits', () => {
-    const plan = migratePlanFromV1({
-      household: { people: 999, infants: -3, days: 1, pets: false, petCount: 8 },
-    });
-    expect(plan.household.people).toBe(20);
-    expect(plan.household.infants).toBe(0);
-    expect(plan.household.days).toBe(7);
-    expect(plan.household.petCount).toBe(0);
-  });
-
-  it('falls back to the default plan when no usable fields exist', () => {
-    expect(migratePlanFromV1(null)).toEqual(DEFAULT_PLAN);
-    expect(migratePlanFromV1('not a plan')).toEqual(DEFAULT_PLAN);
-    const plan = migratePlanFromV1({});
-    expect(plan.household).toEqual(DEFAULT_PLAN.household);
-    expect(plan.tasks).toEqual(DEFAULT_PLAN.tasks);
-    expect(plan.onboarded).toBe(true);
+    const plan = migratePlanFromV2({ household: { people: 999, infants: -3, days: 1, pets: false, petCount: 8 } });
+    expect(plan.profiles.default.household.people).toBe(20);
+    expect(plan.profiles.default.household.infants).toBe(0);
+    expect(plan.profiles.default.household.days).toBe(7);
+    expect(plan.profiles.default.household.petCount).toBe(0);
   });
 
   it('keeps valid structured zones and normalizes their fields', () => {
-    const plan = migratePlanFromV1({
+    const plan = migratePlanFromV2({
       zone: {
         value: ' Zone B ',
         source: 'florida-lookup',
@@ -93,16 +141,18 @@ describe('migratePlanFromV1', () => {
         sourceUrl: ' https://example.gov/zone ',
       },
     });
-    expect(plan.zone.value).toBe('Zone B');
-    expect(plan.zone.source).toBe('florida-lookup');
-    expect(plan.zone.county).toBe('Pinellas');
-    expect(plan.zone.verifiedAt).toBe('2026-09-01T00:00:00.000Z');
-    expect(plan.zone.notes).toHaveLength(500);
-    expect(plan.zone.sourceUrl).toBe('https://example.gov/zone');
+    expect(plan.profiles.default.zone).toMatchObject({
+      value: 'Zone B',
+      source: 'florida-lookup',
+      county: 'Pinellas',
+      verifiedAt: '2026-09-01T00:00:00.000Z',
+      sourceUrl: 'https://example.gov/zone',
+    });
+    expect(plan.profiles.default.zone.notes).toHaveLength(500);
   });
 
   it('drops invalid tasks but keeps the rest', () => {
-    const plan = migratePlanFromV1({
+    const plan = migratePlanFromV2({
       tasks: [
         { id: 'water', title: 'Water', done: true },
         { title: 'Missing id' },
@@ -110,8 +160,20 @@ describe('migratePlanFromV1', () => {
         { id: 'food', category: 'Food' },
       ],
     });
-    expect(plan.tasks).toHaveLength(2);
-    expect(plan.tasks[1]).toMatchObject({ id: 'food', title: 'Preparedness step', category: 'Food', done: false });
+    const tasks = plan.profiles.default.tasks;
+    expect(tasks).toHaveLength(2);
+    expect(tasks[1]).toMatchObject({ id: 'food', title: 'Preparedness step', category: 'Food', done: false });
+  });
+});
+
+describe('moveToProfileMap', () => {
+  it('wraps a saved value under the default profile', () => {
+    const value = { checked: 'now', countryCode: 'US' };
+    expect(moveToProfileMap(value)).toEqual({ [DEFAULT_PROFILE_ID]: value });
+  });
+
+  it('maps null to an empty map so nothing appears live-on-device', () => {
+    expect(moveToProfileMap(null)).toEqual({});
   });
 });
 
@@ -122,6 +184,12 @@ describe('clampHousehold', () => {
 
   it('keeps at least one pet when pets are enabled', () => {
     expect(clampHousehold(household({ pets: true, petCount: 0 })).petCount).toBe(1);
+  });
+
+  it('normalizes the country and keeps the state text', () => {
+    const next = clampHousehold(household({ country: 'MX' as never, state: 'Quintana Roo' }));
+    expect(next.country).toBe('MX');
+    expect(next.state).toBe('Quintana Roo');
   });
 });
 
@@ -147,3 +215,7 @@ describe('visibleTasks', () => {
     expect(isTaskRelevant(task, household())).toBe(true);
   });
 });
+
+function household(overrides: Partial<Household> = {}): Household {
+  return { ...DEFAULT_HOUSEHOLD, ...overrides };
+}

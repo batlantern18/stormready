@@ -15,7 +15,7 @@ export type HttpOptions = {
   signal?: AbortSignal;
 };
 
-export const DEFAULT_USER_AGENT = 'StormReady/1.1 (local-first preparedness app)';
+export const DEFAULT_USER_AGENT = 'StormReady/1.2 (local-first preparedness app)';
 
 export class HttpError extends Error {
   readonly url: string;

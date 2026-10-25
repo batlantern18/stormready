@@ -69,7 +69,7 @@ export default function ReadyStep() {
 
     <Card style={{ backgroundColor: colors.surfaceContainerLow }}>
       <Text style={[styles.label, { color: colors.onSurface }]}>What happens next</Text>
-      <Body>Open Prepare to review your kit and checklist. Use Map to save an offline area, check nearby shelters, and guard your zone. Settings has optional, off-by-default reminders.</Body>
+      <Body>Open Prepare to review your kit and checklist. Use Prepare to check your evacuation zone and nearby shelters. Settings has optional, off-by-default reminders.</Body>
       <Body style={{ fontSize: 11 }}>StormReady is a planning tool, not an official alert authority. Follow instructions from local emergency management and call 911 for immediate danger.</Body>
     </Card>
   </OnboardingPage>;

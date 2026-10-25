@@ -10,10 +10,11 @@ import {
   disableReminders,
   enableReminders,
   loadReminderState,
+  setRefillReminder,
 } from '../src/notifications/scheduler';
 
 jest.mock('expo-notifications', () => ({
-  SchedulableTriggerInputTypes: { WEEKLY: 'weekly', MONTHLY: 'monthly' },
+  SchedulableTriggerInputTypes: { WEEKLY: 'weekly', MONTHLY: 'monthly', DATE: 'date' },
   AndroidImportance: { LOW: 4, DEFAULT: 5 },
   setNotificationHandler: jest.fn(),
   setNotificationChannelAsync: jest.fn(async () => null),
@@ -163,5 +164,113 @@ describe('disableReminders', () => {
     expect(mocked.cancelScheduledNotificationAsync).toHaveBeenCalledWith('a');
     expect(mocked.cancelScheduledNotificationAsync).toHaveBeenCalledWith('b');
     await expect(loadReminderState()).resolves.toEqual(state);
+  });
+});
+
+/** Seeds the reminder document, optionally with an opted-in refill identifier. */
+async function seedReminders(identifierState: Record<string, unknown> = { checklist: 'c', zone: 'z' }) {
+  await AsyncStorage.setItem(keys.notifications.key, JSON.stringify({
+    version: 1,
+    savedAt: '2026-01-01T00:00:00.000Z',
+    data: { enabled: true, identifiers: identifierState, updatedAt: '2026-01-01T00:00:00.000Z' },
+  }));
+}
+
+describe('setRefillReminder (F03)', () => {
+  const now = new Date('2026-10-20T12:00:00.000Z');
+
+  it('schedules one DATE-trigger nudge on the refill morning via the refills channel', async () => {
+    await seedReminders();
+    mocked.scheduleNotificationAsync.mockReset().mockResolvedValueOnce('rotation-id');
+
+    const state = await setRefillReminder('2026-11-05', now);
+
+    expect(state.identifiers).toEqual({ checklist: 'c', zone: 'z', rotation: 'rotation-id' });
+    expect(mocked.scheduleNotificationAsync).toHaveBeenCalledWith({
+      content: REMINDER_CONTENT.refill,
+      trigger: {
+        type: 'date',
+        date: new Date('2026-11-05T09:00:00'),
+        channelId: 'refills',
+      },
+    });
+  });
+
+  it('cancels a previous schedule before replacing it', async () => {
+    await seedReminders({ checklist: 'c', zone: 'z', rotation: 'old-refill' });
+    mocked.scheduleNotificationAsync.mockReset().mockResolvedValueOnce('rotation-id');
+
+    await setRefillReminder('2026-11-20', now);
+
+    expect(mocked.cancelScheduledNotificationAsync).toHaveBeenCalledWith('old-refill');
+  });
+
+  it('never fires for a date that has already passed or is invalid', async () => {
+    await seedReminders({ checklist: 'c', zone: 'z', rotation: 'old-refill' });
+
+    const stale = await setRefillReminder('2026-01-01', now);
+    expect(stale.identifiers).toEqual({ checklist: 'c', zone: 'z' });
+    expect(mocked.scheduleNotificationAsync).not.toHaveBeenCalled();
+
+    const unparseable = await setRefillReminder('not-a-date', now);
+    expect(unparseable.identifiers.rotation).toBeUndefined();
+    await expect(loadReminderState()).resolves.toMatchObject({ identifiers: { checklist: 'c', zone: 'z' } });
+  });
+
+  it('turns the reminder off while keeping the independent checklist/zone pair', async () => {
+    await seedReminders({ checklist: 'c', zone: 'z', rotation: 'old-refill' });
+    mocked.scheduleNotificationAsync.mockReset().mockResolvedValueOnce('rotation-id');
+    await setRefillReminder('2026-11-05', now);
+
+    const state = await setRefillReminder(null, now);
+
+    expect(state.identifiers).toEqual({ checklist: 'c', zone: 'z' });
+    expect(mocked.cancelScheduledNotificationAsync).toHaveBeenCalledWith('old-refill');
+    // A second call with nothing left to cancel must not throw.
+    await expect(setRefillReminder(null, now)).resolves.toMatchObject({ identifiers: { checklist: 'c', zone: 'z' } });
+  });
+
+  it('keeps the reminders toggled off when permission is denied', async () => {
+    await seedReminders({ checklist: 'c', zone: 'z' });
+    mocked.getPermissionsAsync.mockResolvedValueOnce({ granted: false } as never);
+    mocked.scheduleNotificationAsync.mockReset().mockResolvedValueOnce('rotation-id');
+
+    const state = await setRefillReminder('2026-11-05', now);
+
+    expect(state.identifiers.rotation).toBeUndefined();
+    expect(mocked.scheduleNotificationAsync).not.toHaveBeenCalled();
+  });
+
+  it('cleans up on an unexpected failure so no orphan schedule keeps running', async () => {
+    await seedReminders({ checklist: 'c', zone: 'z', rotation: 'old-refill' });
+    mocked.scheduleNotificationAsync.mockReset().mockRejectedValueOnce(new Error('boom'));
+
+    const state = await setRefillReminder('2026-11-05', now);
+
+    expect(state.identifiers.rotation).toBeUndefined();
+    expect(mocked.cancelScheduledNotificationAsync).toHaveBeenCalledWith('old-refill');
+    await expect(loadReminderState()).resolves.toMatchObject({ identifiers: { checklist: 'c', zone: 'z' } });
+  });
+
+  it('does nothing on web', async () => {
+    (Platform as { OS: string }).OS = 'web';
+    await seedReminders({ checklist: 'c', zone: 'z' });
+
+    const state = await setRefillReminder('2026-11-05', now);
+
+    expect(state.identifiers).toEqual({ checklist: 'c', zone: 'z' });
+    expect(mocked.scheduleNotificationAsync).not.toHaveBeenCalled();
+  });
+});
+
+describe('reminder independence', () => {
+  it('keeps the refill identifier through enable and disable (F03)', async () => {
+    await seedReminders({ checklist: 'c', zone: 'z', rotation: 'rotation-id' });
+
+    const enabled = await enableReminders(new Date('2026-10-20T12:00:00.000Z'));
+    expect(enabled.state.identifiers).toMatchObject({ rotation: 'rotation-id' });
+
+    const disabled = await disableReminders();
+    expect(disabled.identifiers).toMatchObject({ rotation: 'rotation-id' });
   });
 });

@@ -8,6 +8,7 @@ import {
   zoneSourceForRegion,
   zoneSummary,
 } from '../src/zone/verification';
+import { CONFIDENCE_LABELS, ZONE_PROVIDERS, providerForCountryAndRegion, providersFor } from '../src/zone/registry';
 import { DEFAULT_ZONE } from '../src/plan-schema';
 
 const now = new Date('2026-10-19T12:00:00.000Z');
@@ -31,7 +32,16 @@ describe('validateManualZone', () => {
       verifiedAt: '2026-10-01T00:00:00.000Z',
       notes: 'County emergency page',
       sourceUrl: 'https://pinellas.gov/zone',
+      country: 'US',
     });
+  });
+
+  it('keeps the country the user selected (F12a/MX support)', () => {
+    const result = validateManualZone({
+      value: 'Zona 3', county: 'Benito Juárez', verifiedAt: null, notes: '', sourceUrl: '',
+      country: 'MX',
+    }, now);
+    expect(result.value?.country).toBe('MX');
   });
 
   it('defaults the verification date to now', () => {
@@ -131,18 +141,49 @@ describe('zone freshness', () => {
 });
 
 describe('zoneSourceForRegion', () => {
-  it('uses the Florida lookup for Florida', () => {
-    expect(zoneSourceForRegion(' FL ').url).toBe(OFFICIAL_ZONE_SOURCES[0].url);
-    expect(zoneSourceForRegion('Florida').url).toBe(OFFICIAL_ZONE_SOURCES[0].url);
+  it('uses the registry (R-ZPR-1): Florida gets the state lookup', () => {
+    const florida = providerForCountryAndRegion('US', 'fl');
+    expect(florida?.id).toBe('florida-dem');
+    expect(zoneSourceForRegion(' FL ').url).toBe(florida!.authorityUrl);
+    expect(zoneSourceForRegion('Florida').url).toBe(florida!.authorityUrl);
   });
 
   it('uses Protección Civil for Mexico', () => {
-    expect(zoneSourceForRegion('MX').url).toBe(OFFICIAL_ZONE_SOURCES[3].url);
-    expect(zoneSourceForRegion('México').url).toBe(OFFICIAL_ZONE_SOURCES[3].url);
+    const mx = providersFor('MX')[0];
+    expect(mx?.id).toBe('mx-proteccion-civil');
+    expect(zoneSourceForRegion('MX').url).toBe(mx!.authorityUrl);
+    expect(zoneSourceForRegion('México').url).toBe(mx!.authorityUrl);
   });
 
   it('falls back to the FEMA directory elsewhere', () => {
-    expect(zoneSourceForRegion('TX').url).toBe(OFFICIAL_ZONE_SOURCES[1].url);
-    expect(zoneSourceForRegion('').url).toBe(OFFICIAL_ZONE_SOURCES[1].url);
+    const fallback = providersFor('US')[0];
+    expect(fallback.confidence).toBe('manual-only');
+    expect(zoneSourceForRegion('TX').url).toBe(fallback.authorityUrl);
+    expect(zoneSourceForRegion('').url).toBe(fallback.authorityUrl);
+  });
+});
+
+describe('zone provider registry', () => {
+  it('lists regional providers before catch-alls and never duplicates', () => {
+    const florida = providersFor('US', 'fl');
+    expect(florida[0].id).toBe('florida-dem');
+    expect(florida.map(provider => provider.id)).toHaveLength(new Set(florida.map(provider => provider.id)).size);
+  });
+
+  it('names a confidence level for every provider (R-ZPR-2)', () => {
+    for (const provider of ZONE_PROVIDERS) {
+      expect(Object.keys(CONFIDENCE_LABELS)).toContain(provider.confidence);
+    }
+    expect(CONFIDENCE_LABELS.authoritative).toContain('Official');
+  });
+
+  it('only Florida has an automated lookup; everything else is manual', () => {
+    expect(providerForCountryAndRegion('US', 'tx')).toBeNull();
+    expect(providerForCountryAndRegion('MX', 'cdmx')).toBeNull();
+  });
+
+  it('generates one source list from the registry', () => {
+    expect(OFFICIAL_ZONE_SOURCES).toHaveLength(ZONE_PROVIDERS.length);
+    expect(OFFICIAL_ZONE_SOURCES.every(source => source.label && source.url && source.note)).toBe(true);
   });
 });

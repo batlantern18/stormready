@@ -1,14 +1,18 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, Linking, Platform, Share, Switch, Text, View } from 'react-native';
+import { Alert, Linking, Platform, Switch, Text, View } from 'react-native';
+import { useRouter } from 'expo-router';
 import { usePlan } from '../../plan';
 import { disableReminders, enableReminders, loadReminderState } from '../../notifications/scheduler';
 import type { ReminderState } from '../../notifications/types';
 import { Action, Body, Card, Header, Page, Pill, Row } from '../../ui';
 import { useAppTheme } from '../../theme';
+import { useT, type TranslationKey } from '../../i18n';
 
 export default function Settings() {
   const plan = usePlan();
+  const router = useRouter();
   const { dark, colors, setDark } = useAppTheme();
+  const { t } = useT();
   const [reminders, setReminders] = useState<ReminderState | null>(null);
   const [reminderBusy, setReminderBusy] = useState(false);
   const [reminderMessage, setReminderMessage] = useState('');
@@ -19,20 +23,9 @@ export default function Settings() {
     return () => { active = false; };
   }, []);
 
-  const exportPlan = async () => {
-    const text = JSON.stringify({
-      exportedAt: new Date().toISOString(),
-      household: plan.household,
-      zone: plan.zone,
-      tasks: plan.tasks,
-      destination: plan.destination,
-    }, null, 2);
-    await Share.share({ title: 'My StormReady plan', message: text }).catch(() => {});
-  };
-
-  const erase = () => Alert.alert('Clear saved plan?', 'This removes your household details, checklist progress, zone, and destination from this device.', [
-    { text: 'Cancel', style: 'cancel' },
-    { text: 'Clear plan', style: 'destructive', onPress: () => { void plan.reset(); } },
+  const erase = () => Alert.alert(t('settings.reset.title'), t('settings.reset.body'), [
+    { text: t('common.cancel'), style: 'cancel' },
+    { text: t('settings.reset.confirm'), style: 'destructive', onPress: () => { void plan.reset(); } },
   ]);
 
   const toggleReminders = async (next: boolean) => {
@@ -89,13 +82,22 @@ export default function Settings() {
 
     <Card><Row><View style={{ flex: 1, gap: 4 }}><Text style={{ color: colors.ink, fontWeight: '800', fontSize: 18 }}>Your saved plan</Text><Body>Local to this device</Body></View><Pill>PRIVATE</Pill></Row>
       <Body>Your household profile, task progress, verified zone, destination, and downloaded area pack stay in app storage on this device. Saved data is versioned and recovered safely if it is ever damaged. Uninstalling the app may remove it.</Body>
-      <Action title="Export a copy of my plan" kind="secondary" onPress={() => void exportPlan()} />
-      <Action title="Erase saved plan from this device" kind="quiet" onPress={erase} />
+      <Action title={t('settings.transfer.share')} kind="secondary" onPress={() => router.push('/settings/transfer')} />
+      <Action title={t('settings.transfer.import')} kind="secondary" onPress={() => router.push('/settings/transfer')} />
+      <Action title={t('settings.reset.action')} kind="quiet" onPress={erase} />
+    </Card>
+
+    {/* F12b + F10 — privacy, transfer, and language entries. */}
+    <Card>
+      <Text style={{ color: colors.ink, fontWeight: '800', fontSize: 18 }}>{t('settings.control.title')}</Text>
+      <Body style={{ fontSize: 12 }}>{t('settings.control.body')}</Body>
+      <Action title={t('settings.privacy')} kind="secondary" onPress={() => router.push('/settings/privacy')} />
+      <Action title={t('settings.language')} kind="secondary" onPress={() => router.push('/settings/language')} />
     </Card>
 
     <Card><Text style={{ color: colors.ink, fontWeight: '800', fontSize: 18 }}>Trusted guidance</Text>
       <Body>Official guidance changes. Check the source directly before making decisions during an emergency.</Body>
-      <Body>Official websites require a connection. Offline, use Prepare for the built-in field guide and Map for your saved zone, shelter directory, and any downloaded county evacuation PDF.</Body>
+      <Body>Official websites require a connection. Offline, use Prepare for the built-in field guide, your saved zone, and shelter directory.</Body>
       <Action title="U.S. FEMA emergency resources ↗" kind="secondary" onPress={() => Linking.openURL('https://www.fema.gov/emergency-managers').catch(() => {})} />
       <Action title="National Weather Service ↗" kind="secondary" onPress={() => Linking.openURL('https://www.weather.gov/').catch(() => {})} />
       <Action title="Mexico Protección Civil ↗" kind="secondary" onPress={() => Linking.openURL('https://www.gob.mx/proteccioncivil').catch(() => {})} />
@@ -105,7 +107,7 @@ export default function Settings() {
     <Card style={{ backgroundColor: colors.soft }}>
       <Text style={{ color: colors.ink, fontWeight: '800', fontSize: 17 }}>About StormReady</Text>
       <Body>StormReady is a preparedness organizer, not an emergency alert authority or replacement for 911. Call 911 for immediate danger. Follow instructions from local emergency management and first responders.</Body>
-      <Text style={{ color: colors.muted, fontSize: 11 }}>Version 1.1 · Ready Kit · Preparedness information can change</Text>
+      <Text style={{ color: colors.muted, fontSize: 11 }}>{t('settings.version')}</Text>
     </Card>
   </Page>;
 }

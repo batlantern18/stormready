@@ -1,8 +1,19 @@
-import React from 'react';
-import Animated, { ReduceMotion, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from 'react-native-reanimated';
-import { Pressable, ScrollView, StyleProp, StyleSheet, Text, TextInput, TextStyle, View, ViewStyle, type PressableProps, type PressableStateCallbackType } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import Animated, { FadeIn, FadeOut, ReduceMotion, useAnimatedStyle, useReducedMotion, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
+import { Pressable, ScrollView, StyleProp, StyleSheet, Text, TextInput, TextStyle, View, ViewStyle, type PressableProps } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { darkColors, lightColors, type Palette, useAppTheme } from './theme';
+
+/**
+ * One press feel for the whole app. A 3 % dip that returns in 120 ms reads as
+ * "the interface heard you" without the wobble of a bouncy spring, and the
+ * same numbers everywhere are what make the app feel like one thing.
+ */
+const PRESS_SCALE = 0.97;
+const PRESS_DURATION_MS = 120;
+
+/** How long a progress bar takes to reach its new value (R-DRL calm motion). */
+const BAR_DURATION_MS = 420;
 
 export function Page({ children, scroll = true }: React.PropsWithChildren<{ scroll?: boolean }>) {
   const { dark } = useAppTheme();
@@ -56,23 +67,21 @@ export function Field({ label, value, onChangeText, placeholder, keyboardType, m
   </View>;
 }
 
-export function Action({ title, onPress, kind = 'primary', small = false }: {
-  title: string; onPress: () => void; kind?: 'primary' | 'secondary' | 'quiet'; small?: boolean;
+export function Action({ title, onPress, kind = 'primary', small = false, disabled = false }: {
+  title: string; onPress?: () => void; kind?: 'primary' | 'secondary' | 'quiet'; small?: boolean; disabled?: boolean;
 }) {
   const { dark } = useAppTheme();
   const s = dark ? darkStyles : lightStyles;
-  const scale = useSharedValue(1);
-  const animatedStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.get() }] }));
-  const reducedMotion = useReducedMotion();
-  const pressIn = () => { if (!reducedMotion) scale.set(withTiming(0.975, { duration: 110, reduceMotion: ReduceMotion.System })); };
-  const pressOut = () => { if (!reducedMotion) scale.set(withTiming(1, { duration: 110, reduceMotion: ReduceMotion.System })); };
-  return <Animated.View style={animatedStyle}>
-    <Pressable accessibilityRole="button" onPress={onPress} onPressIn={pressIn} onPressOut={pressOut}
-      android_ripple={kind === 'primary' ? { color: 'rgba(255,255,255,0.18)' } : { color: 'rgba(0,107,94,0.10)' }}
-      style={[s.action, kind === 'primary' ? s.primary : kind === 'secondary' ? s.secondary : s.quiet, small && s.actionSmall]}>
-      <Text style={[s.actionText, kind !== 'primary' && s.actionTextTonal, small && s.actionTextSmall]}>{title}</Text>
-    </Pressable>
-  </Animated.View>;
+  return <MotionPressable
+    accessibilityRole="button"
+    accessibilityState={{ disabled }}
+    disabled={disabled}
+    onPress={onPress}
+    android_ripple={kind === 'primary' ? { color: 'rgba(255,255,255,0.18)' } : { color: 'rgba(0,107,94,0.10)' }}
+    style={[s.action, kind === 'primary' ? s.primary : kind === 'secondary' ? s.secondary : s.quiet, small && s.actionSmall, disabled && s.actionDisabled]}
+  >
+    <Text style={[s.actionText, kind !== 'primary' && s.actionTextTonal, small && s.actionTextSmall]}>{title}</Text>
+  </MotionPressable>;
 }
 
 export function Pill({ children, tone = 'green', maxFontSizeMultiplier }: React.PropsWithChildren<{ tone?: 'green' | 'amber' | 'blue'; maxFontSizeMultiplier?: number }>) {
@@ -86,6 +95,10 @@ export function Pill({ children, tone = 'green', maxFontSizeMultiplier }: React.
 /**
  * A progress bar that announces its value to a screen reader. The bar holds no
  * text, so a large system font cannot clip inside the fixed-height track.
+ *
+ * The fill grows from the left with a `scaleX` on a `transformOrigin` anchor
+ * rather than an animated `width`, so the whole bar stays on the compositor
+ * thread instead of re-laying out on every frame.
  */
 export function ProgressBar({ value, max, label, tint, track }: {
   value: number;
@@ -95,19 +108,55 @@ export function ProgressBar({ value, max, label, tint, track }: {
   track?: string;
 }) {
   const { colors } = useAppTheme();
+  const reducedMotion = useReducedMotion();
   const percent = max > 0 ? Math.min(100, Math.max(0, (value / max) * 100)) : 0;
+  const fill = useSharedValue(percent / 100);
+  const animatedFill = useAnimatedStyle(() => ({ transform: [{ scaleX: fill.get() }] }));
+
+  useEffect(() => {
+    const target = percent / 100;
+    fill.set(reducedMotion ? target : withTiming(target, { duration: BAR_DURATION_MS, reduceMotion: ReduceMotion.System }));
+  }, [fill, percent, reducedMotion]);
+
   return <View
+    accessible
     accessibilityRole="progressbar"
     accessibilityLabel={label}
     accessibilityValue={{ min: 0, max, now: value }}
     style={[sharedStyles.progressTrack, { backgroundColor: track ?? 'rgba(255,255,255,0.20)' }]}
   >
-    <View style={[sharedStyles.progressFill, { width: `${percent}%`, backgroundColor: tint ?? colors.primaryContainer }]} />
+    <Animated.View
+      style={[
+        sharedStyles.progressFill,
+        { width: '100%', backgroundColor: tint ?? colors.primaryContainer, transformOrigin: 'left' },
+        animatedFill,
+      ]}
+    />
   </View>;
 }
 
 export function Row({ children, style }: React.PropsWithChildren<{ style?: StyleProp<ViewStyle> }>) {
   return <View style={[{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, style]}>{children}</View>;
+}
+
+/**
+ * A panel that appears and disappears in place.
+ *
+ * The enter is a touch slower than the exit, so a panel that opens feels
+ * considered while a panel that closes gets out of the way. Motion is
+ * suppressed entirely when the device asks for reduced motion.
+ */
+export function Disclosure({ children, entering, exiting }: {
+  children: React.ReactNode;
+  entering?: typeof FadeIn;
+  exiting?: typeof FadeOut;
+}) {
+  return <Animated.View
+    entering={entering ?? FadeIn.duration(120).reduceMotion(ReduceMotion.System)}
+    exiting={exiting ?? FadeOut.duration(100).reduceMotion(ReduceMotion.System)}
+  >
+    {children}
+  </Animated.View>;
 }
 
 export function ToggleRow({ title, detail, value, onPress, disabled }: {
@@ -119,6 +168,17 @@ export function ToggleRow({ title, detail, value, onPress, disabled }: {
 }) {
   const { dark, colors } = useAppTheme();
   const s = dark ? darkStyles : lightStyles;
+  const reducedMotion = useReducedMotion();
+  // The thumb travels on a spring so the switch reads as a physical object
+  // being flicked rather than a picture being swapped.
+  const travel = useSharedValue(value ? 1 : 0);
+  const thumbStyle = useAnimatedStyle(() => ({ transform: [{ translateX: travel.get() * 20 }] }));
+
+  useEffect(() => {
+    const target = value ? 1 : 0;
+    travel.set(reducedMotion ? target : withSpring(target, { damping: 20, stiffness: 260, mass: 0.7, reduceMotion: ReduceMotion.System }));
+  }, [travel, value, reducedMotion]);
+
   return <Pressable
     accessibilityRole="switch"
     accessibilityLabel={title}
@@ -132,7 +192,7 @@ export function ToggleRow({ title, detail, value, onPress, disabled }: {
       {detail ? <Text style={s.toggleDetail}>{detail}</Text> : null}
     </View>
     <View style={[s.switchTrack, { backgroundColor: value ? colors.primary : colors.surfaceContainerHighest, borderColor: value ? colors.primary : colors.outline }]}>
-      <View style={[s.switchThumb, { backgroundColor: value ? colors.onPrimary : colors.onSurfaceVariant, transform: [{ translateX: value ? 20 : 0 }] }]} />
+      <Animated.View style={[s.switchThumb, { backgroundColor: value ? colors.onPrimary : colors.onSurfaceVariant }, thumbStyle]} />
     </View>
   </Pressable>;
 }
@@ -195,6 +255,7 @@ const createStyles = (colors: Palette) => StyleSheet.create({
   secondary: { backgroundColor: colors.secondaryContainer },
   quiet: { backgroundColor: 'transparent', borderWidth: 1, borderColor: colors.outline },
   actionSmall: { minHeight: 44, paddingVertical: 9, paddingHorizontal: 16, borderRadius: 12 },
+  actionDisabled: { opacity: 0.45 },
   actionText: { fontSize: 14, lineHeight: 20, fontWeight: '600', letterSpacing: 0.1, color: colors.onPrimary },
   actionTextTonal: { color: colors.onSecondaryContainer },
   actionTextSmall: { fontSize: 13 },
@@ -229,19 +290,30 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 export function MotionPressable({ onPressIn, onPressOut, style, ...props }: PressableProps) {
   const reducedMotion = useReducedMotion();
   const scale = useSharedValue(1);
+  const [pressed, setPressed] = useState(false);
   const animatedStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.get() }] }));
   const pressIn = (event: Parameters<NonNullable<PressableProps['onPressIn']>>[0]) => {
-    if (!reducedMotion && !props.disabled) scale.set(withTiming(0.97, { duration: 120, reduceMotion: ReduceMotion.System }));
+    setPressed(true);
+    if (!reducedMotion && !props.disabled) scale.set(withTiming(PRESS_SCALE, { duration: PRESS_DURATION_MS, reduceMotion: ReduceMotion.System }));
     onPressIn?.(event);
   };
   const pressOut = (event: Parameters<NonNullable<PressableProps['onPressOut']>>[0]) => {
-    if (!reducedMotion) scale.set(withTiming(1, { duration: 120, reduceMotion: ReduceMotion.System }));
+    setPressed(false);
+    // The release springs back: a spring settles on whatever velocity the
+    // press had, so a quick tap-and-let-go never looks cut short.
+    if (!reducedMotion) scale.set(withSpring(1, { damping: 18, stiffness: 320, mass: 0.6, reduceMotion: ReduceMotion.System }));
     onPressOut?.(event);
   };
+  // Animated.createAnimatedComponent does not reliably resolve Pressable's
+  // callback style form. Resolve it here and pass a plain style array so the
+  // caller's background, border, and pressed feedback reach the native view.
+  const resolvedStyle = typeof style === 'function'
+    ? style({ pressed, hovered: false })
+    : style;
   return <AnimatedPressable
     {...props}
     onPressIn={pressIn}
     onPressOut={pressOut}
-    style={(state: PressableStateCallbackType) => [typeof style === 'function' ? style(state) : style, animatedStyle]}
+    style={[resolvedStyle, animatedStyle]}
   />;
 }

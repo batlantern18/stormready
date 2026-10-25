@@ -1,24 +1,58 @@
-import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { Link, type Href } from 'expo-router';
+import React, { useMemo } from 'react';
+import { Image, StyleSheet, Text, View } from 'react-native';
+import { Link } from 'expo-router';
 import { usePlan } from '../../plan';
 import { visibleTasks } from '../../plan-schema';
 import { zoneSummary } from '../../zone/verification';
-import { Body, Card, Header, Page, Pill, ProgressBar, Row } from '../../ui';
+import { calculateKit } from '../../kit/calculator';
+import { coverageFor } from '../../inventory/model';
+import { seasonCheck } from '../../readiness/season';
+import { BAND_LABEL_KEYS, FACTOR_LABEL_KEYS, SEASON_LABEL } from '../../readiness/labels';
+import { readinessScore } from '../../readiness/score';
+import { daysSinceDrill, isDrillDue } from '../../scenarios/model';
+import { bagProgress } from '../../gobag/model';
+import { Action, Body, Card, Header, Page, Pill, ProgressBar, Row } from '../../ui';
 import { darkColors, lightColors, type Palette, useAppTheme } from '../../theme';
+import { useT, type TranslationKey } from '../../i18n';
 
 export default function Home() {
   const plan = usePlan();
   const { dark, colors } = useAppTheme();
+  const { t } = useT();
   const styles = dark ? darkStyles : lightStyles;
   const visible = visibleTasks(plan.tasks, plan.household);
-  const completed = visible.filter(t => t.done).length;
-  const next = visible.find(t => !t.done);
+  const completed = visible.filter(task => task.done).length;
+  const next = visible.find(task => !task.done);
   const zone = zoneSummary(plan.zone);
+  const now = useMemo(() => new Date(), []);
+  const kitLines = useMemo(
+    () => calculateKit(plan.household, plan.medical, plan.communication),
+    [plan.household, plan.medical, plan.communication],
+  );
+  const coverage = coverageFor(kitLines, plan.inventory).filter(line => line.itemId === 'water' || line.itemId === 'food');
+  const score = useMemo(() => readinessScore({
+    household: plan.household,
+    tasks: plan.tasks,
+    kitLines,
+    inventory: plan.inventory,
+    zone: plan.zone,
+    goBags: plan.goBags,
+    medical: plan.medical,
+    communication: plan.communication,
+    drills: plan.drills.results,
+  }, now), [plan.household, plan.tasks, kitLines, plan.inventory, plan.zone, plan.goBags, plan.medical, plan.communication, plan.drills.results, now]);
+  const topGap = score.topGaps[0];
+  const season = seasonCheck(plan.household.country, plan.household.state, now, plan.inventory.lastRotationAt);
+  const drillDays = daysSinceDrill(plan.drills.results, now);
+  const drillDue = isDrillDue(plan.drills.results, now);
+  const halfBags = plan.goBags.bags.filter(bag => {
+    const progress = bagProgress(bag);
+    return progress.percent !== null && progress.percent < 50;
+  });
 
   return <Page>
     <Row style={styles.brandRow}>
-      <View style={styles.brandMark}><Text style={styles.brandMarkText}>S</Text></View>
+      <Image style={styles.brandMark} source={require('../../../assets/icon.png')} />
       <Text style={styles.brand}>STORMREADY</Text>
       <View style={{ flex: 1 }} />
       <Pill tone="blue">SAVED ON DEVICE</Pill>
@@ -42,40 +76,99 @@ export default function Home() {
       <Body style={{ color: colors.forestMuted }}>Open Prepare in the bottom toolbar to update your checklist.</Body>
     </Card>
 
-    <View style={styles.sectionHeading}><Text style={styles.sectionTitle}>Your essentials</Text><Text style={styles.sectionNote}>Available whenever you need them</Text></View>
-    <View style={styles.shortcuts}>
-      <Shortcut href="/(tabs)/plan" title="Household plan" subtitle="Supplies, people & next steps" symbol="✓" tint={colors.mint} />
-      <Shortcut href="/kit" title="Emergency kit" subtitle={`${plan.household.people} people · ${plan.household.days} days · shareable`} symbol="▤" tint={dark ? colors.mint : '#E9F0ED'} />
-      <Shortcut href="/(tabs)/map" title="Map & shelters" subtitle={zone.ageDays !== null || plan.zone.value ? `${zone.label} · ${zone.provenance}` : 'Save an area for offline use'} symbol="⌖" tint={dark ? colors.mint : '#E9F0ED'} />
-    </View>
+    <View style={styles.sectionHeading}><Text style={styles.sectionTitle}>{t('home.sections.ready')}</Text><Text style={styles.sectionNote}>{t('home.sections.ready.note')}</Text></View>
+
+    {/* F09 — the readiness card: band, honest score, and the top gap with a fix. */}
+    <Card style={{ gap: 12 }}>
+      <Row style={{ alignItems: 'flex-start' }}>
+        <View style={{ flex: 1, gap: 5 }}>
+          <Text style={{ color: colors.tealDark, fontSize: 10, fontWeight: '800', letterSpacing: 1 }}>{t('home.readiness.tag')}</Text>
+          <Text style={{ color: colors.ink, fontSize: 17, fontWeight: '800' }}>
+            {t('home.readiness.score', { score: score.total })} · <Text style={{ color: colors.primary }}>{t(BAND_LABEL_KEYS[score.band])}</Text>
+          </Text>
+          {topGap ? <Body style={{ fontSize: 12 }}>{t('home.readiness.topGap', { gap: factorTitle(topGap.id, t) })}</Body> : <Body style={{ fontSize: 12 }}>{t('home.readiness.noGap')}</Body>}
+        </View>
+        <Text style={{ color: colors.primary, fontSize: 27, fontWeight: '900' }}>{score.total}</Text>
+      </Row>
+      <Row style={{ gap: 9 }}>
+        <View style={{ flex: 1 }}>
+          <Link href="/readiness" asChild>
+            <Action title={t('home.readiness.open')} kind="secondary" small />
+          </Link>
+        </View>
+      </Row>
+    </Card>
+
+    {season ? <Card style={{ backgroundColor: colors.sand, borderColor: colors.sand }}>
+      <Row><Pill tone="amber">{t('home.season.tag')}</Pill></Row>
+      <Text style={{ color: colors.ink, fontWeight: '800', fontSize: 15 }}>{t(SEASON_LABEL[season.season.id])}</Text>
+      <Body style={{ fontSize: 12 }}>{t('home.season.body', { from: season.season.startDay.label })}</Body>
+      <Row style={{ gap: 9 }}>
+        <View style={{ flex: 1 }}>
+          <Link href="/inventory" asChild>
+            <Action title={t('home.season.rotate')} kind="secondary" small />
+          </Link>
+        </View>
+        <View style={{ flex: 1 }}>
+          <Link href="/readiness" asChild>
+            <Action title={t('home.season.readiness')} kind="quiet" small />
+          </Link>
+        </View>
+      </Row>
+    </Card> : null}
+
+    <Card style={{ gap: 4 }}>
+      <Text style={{ color: colors.tealDark, fontSize: 10, fontWeight: '800', letterSpacing: 1 }}>{t('home.updates.tag')}</Text>
+      {coverage.length || drillDue || drillDays !== null || halfBags.length ? <>
+        {coverage.map(line => <Row key={line.itemId} style={{ paddingVertical: 5, alignItems: 'flex-start' }}>
+          <Body style={{ flex: 1, fontSize: 13 }}>
+            {line.itemId === 'water' ? t('home.updates.water') : t('home.updates.food')}
+          </Body>
+          <Pill tone={line.covered ? 'green' : 'amber'}>
+            {line.covered ? t('home.updates.covered') : t('inventory.coverage.missing', { owned: line.owned, required: line.required })}
+          </Pill>
+        </Row>)}
+        {drillDue ? <Row style={{ paddingVertical: 5 }}>
+          <Body style={{ flex: 1, fontSize: 13 }}>{t('home.updates.drillDue')}</Body>
+          <Link href="/drill" asChild>
+            <Action title={t('home.updates.practise')} kind="secondary" small />
+          </Link>
+        </Row> : drillDays !== null ? <Row style={{ paddingVertical: 5 }}>
+          <Body style={{ flex: 1, fontSize: 13 }}>{t('home.updates.drill', { days: drillDays })}</Body>
+          <Link href="/drill" asChild>
+            <Action title={t('home.updates.practise')} kind="quiet" small />
+          </Link>
+        </Row> : null}
+        {halfBags.map(bag => <Row key={bag.id} style={{ paddingVertical: 5 }}>
+          <Body style={{ flex: 1, fontSize: 13 }}>{t('home.updates.bag', { name: bag.name })}</Body>
+          <Link href={`/go-bags/${bag.id}`} asChild>
+            <Action title={t('gobags.open')} kind="quiet" small />
+          </Link>
+        </Row>)}
+      </> : <Body style={{ fontSize: 12 }}>{t('home.updates.empty')}</Body>}
+    </Card>
 
     <Card style={styles.alertCard}>
-      <Row style={{ alignItems: 'flex-start' }}>
+      <Row style={{ alignItems: 'flex-start', gap: 10 }}>
         <View style={styles.alertIcon}><Text style={styles.alertIconText}>!</Text></View>
         <View style={{ flex: 1, gap: 5 }}><Text style={styles.alertTitle}>For current alerts, check official sources</Text><Body>Conditions and evacuation orders can change. StormReady is a planning tool, not an emergency alert authority.</Body></View>
       </Row>
       <Body>Open Updates in the bottom toolbar for current alerts and local guidance.</Body>
     </Card>
 
-    <Text style={styles.footer}>Check local emergency-management guidance for your area.</Text>
+    <Text style={styles.footer}>Check local emergency-management guidance for your area. Official sources are the final authority for alerts and evacuation orders.</Text>
   </Page>;
 }
 
-function Shortcut({ href, title, subtitle, symbol, tint }: { href: Href; title: string; subtitle: string; symbol: string; tint: string }) {
-  const { dark } = useAppTheme();
-  const styles = dark ? darkStyles : lightStyles;
-  return <Link href={href} asChild>
-    <Pressable accessibilityRole="button" accessibilityLabel={`${title}. ${subtitle}`} style={({ pressed }) => [styles.shortcut, pressed && { opacity: 0.78 }]}>
-      <View style={[styles.shortcutIcon, { backgroundColor: tint }]}><Text style={styles.shortcutSymbol}>{symbol}</Text></View>
-      <View style={{ flex: 1, gap: 4 }}><Text style={styles.shortcutTitle}>{title}</Text><Text style={styles.shortcutSubtitle}>{subtitle}</Text></View>
-    </Pressable>
-  </Link>;
+/** The localized title of a readiness factor, mapped through `FACTOR_LABEL_KEYS`. */
+function factorTitle(factorId: string, t: (key: TranslationKey, params?: Record<string, string | number>) => string): string {
+  const key = FACTOR_LABEL_KEYS[factorId];
+  return key ? t(key) : factorId;
 }
 
 const createStyles = (colors: Palette) => StyleSheet.create({
   brandRow: { minHeight: 40, marginBottom: 1, gap: 9 },
-  brandMark: { width: 32, height: 32, borderRadius: 10, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
-  brandMarkText: { color: '#FFFFFF', fontSize: 17, fontWeight: '900' },
+  brandMark: { width: 32, height: 32, borderRadius: 10 },
   brand: { color: colors.tealDark, fontSize: 11, fontWeight: '900', letterSpacing: 1.35 },
   progressCard: { backgroundColor: colors.primary, borderColor: colors.primary, padding: 20, gap: 17 },
   cardEyebrow: { color: colors.primaryContainer, fontSize: 11, fontWeight: '700', letterSpacing: 0.7 },

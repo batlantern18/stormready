@@ -1,24 +1,51 @@
-import React, { createContext, useContext, useEffect, useMemo, useReducer, useState } from 'react';
-import { DEFAULT_PLAN, type Destination, type Household, type PlanState, type VerifiedZone } from './plan-schema';
+import React, { createContext, useContext, useEffect, useMemo, useReducer, useState } from 'react';import {
+  DEFAULT_PLAN,
+  DEFAULT_PROFILE_PLAN,
+  type CommunicationPlan,
+  type Destination,
+  type DrillResult,
+  type GoBagState,
+  type Household,
+  type InventoryState,
+  type MedicalPlan,
+  type PlanState,
+  type ProfileId,
+  type ProfilePlan,
+  type Task,
+  type VerifiedZone,
+} from './plan-schema';
 import { planReducer } from './plan-reducer';
+import { wipeAllData } from './storage/wipe';
 import { keys } from './storage/keys';
 import { load, remove, save } from './storage/store';
 
-type PlanContext = PlanState & {
+type PlanContext = ProfilePlan & {
   ready: boolean;
+  onboarded: boolean;
+  profileId: ProfileId;
+  /** The complete schema v3 document (all profiles), e.g. for export/wipe. */
+  doc: PlanState;
   setHousehold: (value: Partial<Household>) => void;
   toggleTask: (id: string) => void;
   setTaskDone: (id: string, done: boolean) => void;
+  addTask: (value: Task) => void;
   setDestination: (value: Partial<Destination>) => void;
   setZone: (value: Partial<VerifiedZone>) => void;
+  setInventory: (value: InventoryState) => void;
+  setGoBags: (value: GoBagState) => void;
+  setMedical: (value: MedicalPlan) => void;
+  setCommunication: (value: CommunicationPlan) => void;
+  addDrillResult: (value: DrillResult) => void;
   completeOnboarding: () => void;
+  replaceDoc: (value: PlanState) => void;
   reset: () => Promise<void>;
+  wipeAll: () => Promise<void>;
 };
 
 const Context = createContext<PlanContext | null>(null);
 
 export function PlanProvider({ children }: React.PropsWithChildren) {
-  const [plan, dispatch] = useReducer(planReducer, DEFAULT_PLAN);
+  const [doc, dispatch] = useReducer(planReducer, DEFAULT_PLAN);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -30,24 +57,46 @@ export function PlanProvider({ children }: React.PropsWithChildren) {
     return () => { active = false; };
   }, []);
 
+  // Persist with the document's own staleness stamp (schema v3 `updatedAt`).
   useEffect(() => {
-    if (ready) save(keys.plan, plan);
-  }, [plan, ready]);
+    if (!ready) return;
+    const stamped: PlanState = { ...doc, updatedAt: new Date().toISOString() };
+    save(keys.plan, stamped);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- stamp the saved copy, not the reducer state
+  }, [doc, ready]);
+
+  const readyProfile = ready
+    ? (doc.profiles[doc.activeProfileId] ?? DEFAULT_PROFILE_PLAN)
+    : DEFAULT_PROFILE_PLAN;
 
   const value = useMemo<PlanContext>(() => ({
-    ...plan,
+    ...readyProfile,
     ready,
+    onboarded: doc.onboarded,
+    profileId: doc.activeProfileId,
+    doc,
     setHousehold: update => dispatch({ type: 'setHousehold', value: update }),
     toggleTask: id => dispatch({ type: 'toggleTask', id }),
     setTaskDone: (id, done) => dispatch({ type: 'setTaskDone', id, done }),
+    addTask: value => dispatch({ type: 'addTask', value }),
     setDestination: update => dispatch({ type: 'setDestination', value: update }),
     setZone: update => dispatch({ type: 'setZone', value: update }),
+    setInventory: value => dispatch({ type: 'setInventory', value }),
+    setGoBags: value => dispatch({ type: 'setGoBags', value }),
+    setMedical: value => dispatch({ type: 'setMedical', value }),
+    setCommunication: value => dispatch({ type: 'setCommunication', value }),
+    addDrillResult: value => dispatch({ type: 'addDrillResult', value }),
     completeOnboarding: () => dispatch({ type: 'completeOnboarding' }),
+    replaceDoc: value => dispatch({ type: 'replace', value }),
     reset: async () => {
       await remove(keys.plan);
       dispatch({ type: 'reset' });
     },
-  }), [plan, ready]);
+    wipeAll: async () => {
+      await wipeAllData();
+      dispatch({ type: 'wipe' });
+    },
+  }), [readyProfile, doc, ready]);
 
   return <Context.Provider value={value}>{children}</Context.Provider>;
 }

@@ -1,32 +1,21 @@
 import type { VerifiedZone, ZoneSource } from '../plan-schema';
-import { LIMITS } from '../plan-schema';
+import { LIMITS, normalizeCountry, type CountryCode } from '../plan-schema';
+import { CONFIDENCE_LABELS, providersFor, ZONE_PROVIDERS } from './registry';
 
 export const STALE_AFTER_DAYS = 90;
 
 export type ZoneSourceLink = { label: string; url: string; note: string };
 
-export const OFFICIAL_ZONE_SOURCES: ZoneSourceLink[] = [
-  {
-    label: 'Florida Know Your Zone',
-    url: 'https://www.floridadisaster.org/knowyourzone/',
-    note: 'Florida Division of Emergency Management',
-  },
-  {
-    label: 'Find your state emergency management agency',
-    url: 'https://www.fema.gov/about/organization/regions',
-    note: 'FEMA regional and state directory',
-  },
-  {
-    label: 'State and local emergency information',
-    url: 'https://www.ready.gov/state-local-information',
-    note: 'Ready.gov',
-  },
-  {
-    label: 'Mexico Protección Civil',
-    url: 'https://www.gob.mx/proteccioncivil',
-    note: 'Coordinación Nacional de Protección Civil',
-  },
-];
+/**
+ * Generated from the zone provider registry (F12a). R-ZPR-1: there is no
+ * second hand-maintained list anywhere in the app; the zone sheet, the manual
+ * entry screens, and `zoneSourceForRegion` all render from this array.
+ */
+export const OFFICIAL_ZONE_SOURCES: ZoneSourceLink[] = ZONE_PROVIDERS.map(provider => ({
+  label: provider.label,
+  url: provider.authorityUrl,
+  note: `${provider.authority} · ${CONFIDENCE_LABELS[provider.confidence]}`,
+}));
 
 export type ManualZoneInput = {
   value: string;
@@ -34,6 +23,8 @@ export type ManualZoneInput = {
   verifiedAt: string | null;
   notes: string;
   sourceUrl: string;
+  /** Optional country; defaults to 'US' for older callers. */
+  country?: CountryCode;
 };
 
 export type ZoneValidation = {
@@ -91,6 +82,7 @@ export function validateManualZone(input: ManualZoneInput, now = new Date()): Zo
       verifiedAt: verifiedAt ?? now.toISOString(),
       notes,
       sourceUrl,
+      country: normalizeCountry(input.country),
     },
   };
 }
@@ -138,9 +130,29 @@ export function zoneSummary(zone: VerifiedZone, now = new Date()) {
   };
 }
 
+export function zoneSourceForCountryAndRegion(country: CountryCode, region?: string): ZoneSourceLink {
+  const normalized = (region ?? '').trim().toLowerCase();
+  const regional = ['fl', 'florida'].includes(normalized)
+    ? 'fl'
+    : ['mx', 'mexico', 'méxico'].includes(normalized)
+      ? 'mx'
+      : undefined;
+  const first = providersFor(country, regional)[0] ?? OFFICIAL_ZONE_SOURCES[0];
+  return {
+    label: first.label,
+    url: first.authorityUrl,
+    note: `${first.authority} · ${CONFIDENCE_LABELS[first.confidence]}`,
+  };
+}
+
+/** Kept for the 1.1 map-screen call sites (region strings, no country). */
 export function zoneSourceForRegion(region: string): ZoneSourceLink {
   const normalized = region.trim().toLowerCase();
-  if (['fl', 'florida'].includes(normalized)) return OFFICIAL_ZONE_SOURCES[0];
-  if (['mx', 'mexico', 'méxico'].includes(normalized)) return OFFICIAL_ZONE_SOURCES[3];
-  return OFFICIAL_ZONE_SOURCES[1];
+  const country: CountryCode = ['mx', 'mexico', 'méxico'].includes(normalized) ? 'MX' : 'US';
+  const regional = ['fl', 'florida'].includes(normalized)
+    ? 'fl'
+    : ['mx', 'mexico', 'méxico'].includes(normalized)
+      ? 'mx'
+      : undefined;
+  return zoneSourceForCountryAndRegion(country, regional);
 }

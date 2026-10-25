@@ -23,7 +23,7 @@ import Animated, { ReduceMotion, useAnimatedStyle, useReducedMotion, useSharedVa
 import { WebView } from 'react-native-webview';
 import { usePlan } from '../../plan';
 import { keys } from '../../storage/keys';
-import { load, remove, save } from '../../storage/store';
+import { load, save } from '../../storage/store';
 import { OFFICIAL_ZONE_SOURCES, validateManualZone, zoneSummary } from '../../zone/verification';
 import { lookupEvacuationZone } from '../../zone';
 import { fetchOnlineDrivingRoute } from '../../online-router';
@@ -130,6 +130,7 @@ async function downloadRoadNetwork(place: Place, onProgress?: (completed: number
 
 export default function MapScreen() {
   const plan = usePlan();
+  const { profileId } = plan;
   const { dark, colors } = useAppTheme();
   const styles = dark ? darkStyles : lightStyles;
   const camera = useRef<CameraRef | null>(null);
@@ -202,7 +203,8 @@ export default function MapScreen() {
     });
     OfflineManager.setTileCountLimit(MAX_TILES);
     OfflineManager.setProgressEventThrottle(700);
-    load(keys.area).then(parsed => {
+    load(keys.area).then(areas => {
+      const parsed = areas[profileId];
       if (!parsed) return;
       const saved = { ...parsed, countryCode: parsed.countryCode || 'US', region: parsed.region || 'Florida' };
       if (saved.countyMapUri && !new File(saved.countyMapUri).exists) saved.countyMapUri = '';
@@ -211,16 +213,17 @@ export default function MapScreen() {
       packRef.current = saved;
       setPack(saved);
       if (saved.countyMapUri !== parsed.countyMapUri || saved.routingGraphUri !== parsed.routingGraphUri || saved.destinationIndexUri !== parsed.destinationIndexUri) {
-        save(keys.area, saved);
+        save(keys.area, { ...areas, [profileId]: saved });
       }
       // The pack status is polled by its own effect below, so a completed pack
       // whose final progress event was dropped still shows as ready.
     }).catch(() => setError('Your saved place could not be opened.'));
-    load(keys.destination).then(point => {
+    load(keys.destination).then(destinations => {
+      const point = destinations[profileId];
       if (point) setDestinationPoint(point);
     }).catch(() => {});
     return () => TransformRequestManager.removeHeader(HEADER_ID);
-  }, []);
+  }, [profileId]);
 
   useEffect(() => {
     let active = true;
@@ -330,8 +333,9 @@ export default function MapScreen() {
   const persist = useCallback(async (next: AreaPack) => {
     packRef.current = next;
     setPack(next);
-    save(keys.area, next);
-  }, []);
+    const areas = await load(keys.area);
+    save(keys.area, { ...areas, [profileId]: next });
+  }, [profileId]);
 
   const refreshOfflineData = useCallback(async () => {
     if (!pack || sheltersRefreshing) return;
@@ -410,9 +414,14 @@ export default function MapScreen() {
 
   const setDestination = useCallback(async (point: DestinationPoint | null) => {
     setDestinationPoint(point);
-    if (point) save(keys.destination, point);
-    else await remove(keys.destination);
-  }, []);
+    const destinations = await load(keys.destination);
+    if (point) save(keys.destination, { ...destinations, [profileId]: point });
+    else {
+      const next = { ...destinations };
+      delete next[profileId];
+      save(keys.destination, next);
+    }
+  }, [profileId]);
 
   const loadRoutingGraph = useCallback(async (): Promise<RoutingGraph> => {
     // The saved area is read from the ref, so a road file that was just

@@ -2,6 +2,7 @@ import { AndroidImportance, setNotificationChannelAsync, setNotificationHandler 
 import { Platform } from 'react-native';
 
 export const REMINDERS_CHANNEL_ID = 'reminders';
+export const REFILLS_CHANNEL_ID = 'refills';
 export const ALERTS_CHANNEL_ID = 'alerts';
 
 /**
@@ -14,6 +15,14 @@ export async function ensureNotificationChannels() {
   await setNotificationChannelAsync(REMINDERS_CHANNEL_ID, {
     name: 'Plan reminders',
     description: 'Optional nudges to work on your preparedness checklist and recheck your zone.',
+    importance: AndroidImportance.LOW,
+    sound: null,
+    enableVibrate: false,
+    showBadge: false,
+  });
+  await setNotificationChannelAsync(REFILLS_CHANNEL_ID, {
+    name: 'Refill reminders',
+    description: 'An optional nudge about a medication refill date you entered yourself.',
     importance: AndroidImportance.LOW,
     sound: null,
     enableVibrate: false,

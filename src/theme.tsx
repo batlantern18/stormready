@@ -1,5 +1,5 @@
 import React, { createContext, createElement, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { keys } from './storage/keys';
+import { keys, normalizeLocale, type LocalePreference } from './storage/keys';
 import { load, save } from './storage/store';
 
 export const lightColors = {
@@ -30,25 +30,79 @@ export const darkColors: Record<keyof typeof lightColors, string> = {
 
 export type Palette = typeof lightColors;
 export const colors: Palette = lightColors;
-type ThemeContextValue = { dark: boolean; colors: Palette; setDark: (value: boolean) => void };
-const ThemeContext = createContext<ThemeContextValue>({ dark: false, colors: lightColors, setDark: () => {} });
+type ThemeContextValue = {
+  dark: boolean;
+  colors: Palette;
+  setDark: (value: boolean) => void;
+  /** F10: 'system' | 'en' | 'es', applied immediately, stored locally. */
+  locale: LocalePreference;
+  systemLocale: LocalePreference;
+  effectiveLocale: Exclude<LocalePreference, 'system'>;
+  setLocale: (value: LocalePreference) => void;
+};
+
+const ThemeContext = createContext<ThemeContextValue>({
+  dark: false,
+  colors: lightColors,
+  setDark: () => {},
+  locale: 'system',
+  systemLocale: 'en',
+  effectiveLocale: 'en',
+  setLocale: () => {},
+});
+
+function detectSystemLocale(): LocalePreference {
+  try {
+    const tags = [
+      (Intl as unknown as { DateTimeFormat?: { resolvedOptions?: () => { locale?: string } } }).DateTimeFormat
+        ?.resolvedOptions?.().locale,
+      typeof navigator !== 'undefined' ? (navigator as { language?: string }).language : undefined,
+    ];
+    for (const tag of tags) {
+      if (tag && tag.toLowerCase().startsWith('es')) return 'es';
+      if (tag) return 'en';
+    }
+  } catch {
+    // Older runtimes without Intl — default to English.
+  }
+  return 'en';
+}
 
 export function ThemeProvider({ children }: React.PropsWithChildren) {
   const [dark, setDarkState] = useState(false);
+  const [locale, setLocaleState] = useState<LocalePreference>('system');
+  const [systemLocale, setSystemLocale] = useState<LocalePreference>('en');
   const [ready, setReady] = useState(false);
   useEffect(() => {
     let active = true;
     load(keys.theme)
-      .then(preference => { if (active) setDarkState(preference.dark); })
+      .then(preference => {
+        if (!active) return;
+        setDarkState(preference.dark);
+        setLocaleState(preference.locale ?? 'system');
+      })
       .catch(() => {})
-      .finally(() => { if (active) setReady(true); });
+      .finally(() => {
+        if (!active) return;
+        setSystemLocale(detectSystemLocale());
+        setReady(true);
+      });
     return () => { active = false; };
   }, []);
   useEffect(() => {
-    if (ready) save(keys.theme, { dark });
-  }, [dark, ready]);
+    if (ready) save(keys.theme, { dark, locale });
+  }, [dark, locale, ready]);
   const setDark = useCallback((value: boolean) => setDarkState(value), []);
-  const value = useMemo(() => ({ dark, colors: (dark ? darkColors : lightColors) as Palette, setDark }), [dark, setDark]);
+  const setLocale = useCallback((value: LocalePreference) => setLocaleState(value), []);
+  const value = useMemo<ThemeContextValue>(() => ({
+    dark,
+    colors: (dark ? darkColors : lightColors) as Palette,
+    setDark,
+    locale,
+    systemLocale,
+    effectiveLocale: (locale === 'system' ? systemLocale : locale) === 'es' ? 'es' : 'en',
+    setLocale,
+  }), [dark, setDark, locale, systemLocale, setLocale]);
   return createElement(ThemeContext.Provider, { value }, children);
 }
 

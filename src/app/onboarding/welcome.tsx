@@ -13,14 +13,17 @@ const STEPS = [
 ];
 
 export default function Welcome() {
-  const { colors } = useAppTheme();
+  const { colors, locale, systemLocale } = useAppTheme();
   const router = useRouter();
+  // F10: the Spanish first-run prompt only appears when the system locale is
+  // Spanish and no explicit choice is stored yet.
+  const nextStep = systemLocale === 'es' && locale === 'system' ? '/onboarding/language' : '/onboarding/household';
   return <OnboardingPage
     step={1}
     eyebrow="Welcome to StormReady"
     title="Ready starts with a few quiet minutes."
     subtitle="Build a household plan you can use offline, then keep it close when the weather changes."
-    footer={<Action title="Start my plan" onPress={() => router.push('/onboarding/household')} />}
+    footer={<Action title="Start my plan" onPress={() => router.push(nextStep)} />}
   >
     <Card style={{ backgroundColor: colors.navy, borderColor: colors.navy }}>
       <Row style={{ alignItems: 'flex-start' }}>
@@ -43,7 +46,7 @@ export default function Welcome() {
       </View>)}
     </View>
 
-    <Body>You can skip setup at any time. Every choice can be changed later in Prepare, Map, or Settings.</Body>
+    <Body>You can skip setup at any time. Every choice can be changed later in Prepare or Settings.</Body>
   </OnboardingPage>;
 }
 
