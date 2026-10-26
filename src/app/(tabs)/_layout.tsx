@@ -23,6 +23,7 @@ export default function TabLayout() {
       <Tabs.Screen name="map" options={{ title: 'Map', tabBarAccessibilityLabel: 'Map, shelters and your zone', tabBarIcon: ({ color, focused }) => <TabIcon symbol="⌖" color={color} focused={focused} /> }} />
       <Tabs.Screen name="updates" options={{ title: 'Updates', tabBarAccessibilityLabel: 'Updates, current weather and safety alerts', tabBarIcon: ({ color, focused }) => <TabIcon symbol="!" color={color} focused={focused} /> }} />
       <Tabs.Screen name="settings" options={{ title: 'Settings', tabBarAccessibilityLabel: 'Settings, privacy and reminders', tabBarIcon: ({ color, focused }) => <TabIcon symbol="⚙" color={color} focused={focused} /> }} />
+      <Tabs.Screen name="powerplan" options={{ title: 'PowerPlan', tabBarAccessibilityLabel: 'PowerPlan, backup power planner', tabBarIcon: ({ color, focused }) => <TabIcon symbol="⚡" color={color} focused={focused} /> }} />
     </Tabs>
   );
 }

@@ -24,7 +24,7 @@ import { WebView } from 'react-native-webview';
 import { usePlan } from '../../plan';
 import { keys } from '../../storage/keys';
 import { load, save } from '../../storage/store';
-import { OFFICIAL_ZONE_SOURCES, validateManualZone, zoneSummary } from '../../zone/verification';
+import { OFFICIAL_ZONE_SOURCES, validateManualZone, zoneAgeText, zoneSummary } from '../../zone/verification';
 import { lookupEvacuationZone } from '../../zone';
 import { fetchOnlineDrivingRoute } from '../../online-router';
 import { Action, Body, Field, MotionPressable as Pressable, Page, Pill, Row } from '../../ui';
@@ -127,6 +127,12 @@ async function downloadRoadNetwork(place: Place, onProgress?: (completed: number
   return { uri: file.uri, partial: Boolean(network.partial), missingSections: network.missingSections || 0 };
 }
 
+function hasCoords(point: { latitude?: unknown; longitude?: unknown } | null | undefined) {
+  if (!point) return false;
+  const valid = typeof point.latitude === 'number' && Number.isFinite(point.latitude) && typeof point.longitude === 'number' && Number.isFinite(point.longitude);
+  if (!valid) console.warn('[stormready-map] dropped a marker with invalid coordinates:', JSON.stringify(point));
+  return valid;
+}
 export default function MapScreen() {
   const plan = usePlan();
   const { profileId } = plan;
@@ -217,7 +223,7 @@ export default function MapScreen() {
     load(keys.area).then(areas => {
       const parsed = areas[profileId];
       if (!parsed) return;
-      const saved = { ...parsed, countryCode: parsed.countryCode || 'US', region: parsed.region || 'Florida' };
+      const saved = { ...parsed, countryCode: parsed.countryCode || 'US', region: parsed.region || 'Florida', shelters: parsed.shelters || [] };
       if (saved.countyMapUri && !new File(saved.countyMapUri).exists) saved.countyMapUri = '';
       if (saved.routingGraphUri && !new File(saved.routingGraphUri).exists) saved.routingGraphUri = undefined;
       if (saved.destinationIndexUri && !new File(saved.destinationIndexUri).exists) saved.destinationIndexUri = undefined;
@@ -751,7 +757,8 @@ export default function MapScreen() {
   }, [current, following, mapReady]);
 
   useEffect(() => {
-    if (!mapReady || !pack || (!pack.shelterCheckedAt && pack.shelters.length === 0)) return;
+    if (!mapReady || !pack || (!pack.shelterCheckedAt && !pack.shelters?.length)) return;
+    if (!pack.shelters?.length) return;
     const areaKey = `${pack.savedAt}:${pack.shelters.map(shelter => shelter.id).join(',')}`;
     if (fittedShelterArea.current === areaKey) return;
     fittedShelterArea.current = areaKey;
@@ -1034,10 +1041,10 @@ export default function MapScreen() {
           {roadRoute ? <GeoJSONSource id="destination-route" data={roadRoute.geometry}>
             <Layer id="destination-route-line" type="line" layout={{ 'line-cap': 'round', 'line-join': 'round' }} paint={{ 'line-color': colors.teal, 'line-width': 5, 'line-opacity': 0.9 }} />
           </GeoJSONSource> : null}
-          {pack ? <Marker id="saved-place" lngLat={[pack.longitude, pack.latitude]}>{markerView('place')}</Marker> : null}
-          {current ? <Marker id="current-location" lngLat={[current.longitude, current.latitude]}>{markerView('current')}</Marker> : null}
-          {destinationPoint ? <Marker id="offline-destination" lngLat={[destinationPoint.longitude, destinationPoint.latitude]}>{markerView('destination')}</Marker> : null}
-          {markers.map(shelter => <Marker key={shelter.id} id={shelter.id} lngLat={[shelter.longitude, shelter.latitude]} onPress={() => setSelectedShelter(shelter)}>{markerView('shelter')}</Marker>)}
+          {pack && hasCoords(pack) ? <Marker id="saved-place" lngLat={[pack.longitude, pack.latitude]}>{markerView('place')}</Marker> : null}
+          {current && hasCoords(current) ? <Marker id="current-location" lngLat={[current.longitude, current.latitude]}>{markerView('current')}</Marker> : null}
+          {destinationPoint && hasCoords(destinationPoint) ? <Marker id="offline-destination" lngLat={[destinationPoint.longitude, destinationPoint.latitude]}>{markerView('destination')}</Marker> : null}
+          {markers.filter(hasCoords).map(shelter => <Marker key={shelter.id} id={shelter.id} lngLat={[shelter.longitude, shelter.latitude]} onPress={() => setSelectedShelter(shelter)}>{markerView('shelter')}</Marker>)}
         </NativeMap>
       </BlurTargetView>
 
@@ -1123,11 +1130,11 @@ export default function MapScreen() {
           {currentZone.value ? <View style={styles.zoneResult}>
             <Text style={styles.zoneResultLabel}>{plan.zone.source === 'florida-lookup' ? 'VERIFIED EVACUATION ZONE' : 'YOUR EVACUATION ZONE'}</Text>
             <Text style={styles.zoneResultValue}>{currentZone.label}{plan.zone.county ? ` · ${plan.zone.county}` : ''}</Text>
-            <Text style={styles.shelterAddress}>{currentZone.provenance}{currentZone.ageDays !== null ? ` · verified ${currentZone.ageDays} days ago` : ''}</Text>
+            <Text style={styles.shelterAddress}>{currentZone.provenance}{currentZone.ageDays !== null ? ` · verified ${zoneAgeText(currentZone.ageDays)}` : ''}</Text>
             {plan.zone.source === 'florida-lookup' && pack?.evacuationZone?.status ? <Text style={styles.shelterAddress}>Current order: {pack.evacuationZone.status}</Text> : null}
             {currentZone.warning ? <Text accessibilityRole="alert" style={[styles.shelterAddress, { color: colors.warning, fontWeight: '700' }]}>{currentZone.warning}</Text> : null}
           </View> : pack?.zoneLookupFailed ? <Text style={styles.shelterAddress}>The zone lookup failed. No verified result is saved for offline access; refresh while connected.</Text> : <Text style={styles.shelterAddress}>{pack && isFlorida(pack) ? `No evacuation zone is recorded for this Florida address${pack.zoneCheckedAt ? ` · checked ${new Date(pack.zoneCheckedAt).toLocaleString()}` : ''}. Open Evacuation zones to check again.` : 'No evacuation zone is recorded on this device. Open Evacuation zones to enter and verify the zone published by your local emergency authority.'}</Text>}
-          {pack?.shelters.length ? <View style={{ gap: 5 }}>
+          {pack?.shelters?.length ? <View style={{ gap: 5 }}>
             <Row style={{ justifyContent: 'space-between', alignItems: 'center' }}><Text style={styles.sectionTitle}>Nearby shelters</Text><Row style={{ gap: 8, alignItems: 'center' }}><Pill maxFontSizeMultiplier={1.4} tone={pack.shelterCheckedAt ? 'green' : 'amber'}>{pack.shelterCheckedAt ? 'SAVED OFFLINE' : 'NOT SAVED'}</Pill><Pressable accessibilityRole="button" onPress={() => setSheltersOpen(true)}><Text style={styles.clearDestination}>See all {pack.shelters.length}</Text></Pressable></Row></Row>
             {pack.shelters.slice(0, 3).map((shelter, index) => <Pressable key={shelter.id} accessibilityRole="button" onPress={() => setSelectedShelter(shelter)} style={({ pressed }) => [styles.shelterRow, index > 0 && styles.divider, pressed && styles.pressed]}>
               <View style={{ flex: 1, gap: 2 }}><Text style={styles.shelterName}>{shelter.name}</Text><Text style={styles.shelterAddress}>{shelter.address}{shelter.city ? `, ${shelter.city}` : ''}</Text></View><Text style={styles.distance}>{shelter.distance.toFixed(1)} mi</Text>
@@ -1208,7 +1215,7 @@ export default function MapScreen() {
             {currentZone.value ? <View style={styles.zoneResult}>
               <Text style={styles.zoneResultLabel}>VERIFIED EVACUATION ZONE</Text>
               <Text style={styles.zoneResultValue}>{currentZone.label}{plan.zone.county ? ` · ${plan.zone.county}` : ''}</Text>
-              <Text style={styles.shelterAddress}>{currentZone.provenance}{currentZone.ageDays !== null ? ` · verified ${currentZone.ageDays} days ago` : ''}</Text>
+              <Text style={styles.shelterAddress}>{currentZone.provenance}{currentZone.ageDays !== null ? ` · verified ${zoneAgeText(currentZone.ageDays)}` : ''}</Text>
               {pack.evacuationZone?.status ? <Text style={styles.shelterAddress}>Current order: {pack.evacuationZone.status}</Text> : null}
               {currentZone.warning ? <Text accessibilityRole="alert" style={[styles.shelterAddress, { color: colors.warning, fontWeight: '700' }]}>{currentZone.warning}</Text> : null}
             </View> : pack.zoneLookupFailed ? <Body>The zone lookup failed, so no verified zone is available offline yet.</Body> : null}
@@ -1221,7 +1228,7 @@ export default function MapScreen() {
           {currentZone.value ? <View style={styles.zoneResult}>
             <Text style={styles.zoneResultLabel}>YOUR EVACUATION ZONE</Text>
             <Text style={styles.zoneResultValue}>{currentZone.label}{plan.zone.county ? ` · ${plan.zone.county}` : ''}</Text>
-            <Text style={styles.shelterAddress}>{currentZone.provenance}{currentZone.ageDays !== null ? ` · verified ${currentZone.ageDays} days ago` : ''}</Text>
+            <Text style={styles.shelterAddress}>{currentZone.provenance}{currentZone.ageDays !== null ? ` · verified ${zoneAgeText(currentZone.ageDays)}` : ''}</Text>
             {currentZone.warning ? <Text accessibilityRole="alert" style={[styles.shelterAddress, { color: colors.warning, fontWeight: '700' }]}>{currentZone.warning}</Text> : null}
           </View> : null}
           <Field label="Zone or evacuation area" value={zone} onChangeText={value => { setZone(value); setZoneSaved(false); }} placeholder="e.g. A, B, or Zone 3" />

@@ -10,6 +10,11 @@ import { Action, Body, Card, Field, Header, Page, Pill, Row } from '../../ui';
 import { useAppTheme } from '../../theme';
 import { usePlan } from '../../plan';
 
+/** Joins a failure reason with follow-up guidance, keeping sentence punctuation clean. */
+function joinReason(reason: string, followUp: string) {
+  return `${reason.trim().replace(/\.?$/, '.')} ${followUp}`;
+}
+
 export default function Updates() {
   const { colors } = useAppTheme();
   const { profileId } = usePlan();
@@ -81,8 +86,8 @@ export default function Updates() {
       if (snapshotAvailable) {
         setState(snapshotCountry === 'MX' ? 'mexico' : 'success');
         setShowingSavedCopy(true);
-        setMessage(`${reason} Showing the saved check from ${checked}; it may be out of date.`);
-      } else { setState('error'); setMessage(`${reason} Check the official sources below.`); }
+        setMessage(joinReason(reason, `Showing the saved check from ${checked}; it may be out of date.`));
+      } else { setState('error'); setMessage(joinReason(reason, 'Check the official sources below.')); }
     }
   };
   const checkAddress = async () => {
@@ -107,7 +112,7 @@ export default function Updates() {
       if (snapshotAvailable) {
         setState(snapshotCountry === 'MX' ? 'mexico' : 'success');
         setShowingSavedCopy(true);
-        setMessage(`${reason} Showing the saved check from ${checked}; it may be out of date.`);
+        setMessage(joinReason(reason, `Showing the saved check from ${checked}; it may be out of date.`));
       } else { setState('error'); setMessage(reason); }
     }
   };

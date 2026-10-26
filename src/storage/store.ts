@@ -78,6 +78,32 @@ async function writeNow<T>(spec: KeySpec<T>, value: T) {
 }
 
 /**
+ * Runs a spec's `repairFromLegacy` hook when an earlier build wiped real data
+ * while migrating (it fed the legacy envelope into the migration, so defaults
+ * were written back). If the legacy document still exists, its payload is
+ * passed to the hook; a repaired result is persisted once.
+ */
+async function repairFromLegacy<T>(spec: KeySpec<T>, value: T): Promise<T> {
+  if (!spec.repairFromLegacy || !spec.legacyKey) return value;
+  const legacyRaw = await AsyncStorage.getItem(spec.legacyKey).catch(() => null);
+  if (legacyRaw === null) return value;
+  let legacy: unknown;
+  try {
+    legacy = JSON.parse(legacyRaw);
+  } catch {
+    return value;
+  }
+  if (isRecord(legacy) && typeof legacy.version === 'number' && 'data' in legacy) legacy = legacy.data;
+  const repaired = spec.repairFromLegacy(value, legacy, new Date().toISOString());
+  if (repaired !== value) {
+    const healed = spec.normalize ? spec.normalize(repaired) : repaired;
+    await writeNow(spec, healed);
+    return healed;
+  }
+  return value;
+}
+
+/**
  * Reads a typed document, migrating the legacy 1.0 key when present. Corrupt
  * documents are quarantined and never overwrite the stored bytes.
  */
@@ -113,29 +139,43 @@ export async function load<T>(spec: KeySpec<T>): Promise<T> {
       return cloneDefault(spec.defaultValue);
     }
     if (parsed.version < spec.version) {
-      if (!spec.migrate) return parsed.data as T;
+      if (!spec.migrate) {
+        const healed = spec.normalize ? spec.normalize(parsed.data as T) : parsed.data as T;
+        return healed as T;
+      }
       try {
         const migrated = spec.migrate(parsed.data, parsed.version, new Date().toISOString());
-        await writeNow(spec, migrated);
-        return migrated;
+        const healed = spec.normalize ? spec.normalize(migrated) : migrated;
+        await writeNow(spec, healed);
+        return healed;
       } catch {
         await quarantine(spec as KeySpec<unknown>, raw, 'Saved data could not be upgraded. Defaults are in use.');
         return cloneDefault(spec.defaultValue);
       }
     }
-    return parsed.data as T;
+    const healed = spec.normalize ? spec.normalize(parsed.data as T) : parsed.data as T;
+    return await repairFromLegacy(spec, healed);
   }
 
   if (spec.legacyKey) {
     const legacyRaw = await AsyncStorage.getItem(spec.legacyKey).catch(() => null);
     if (legacyRaw !== null) {
       try {
-        const parsedLegacy = spec.parseLegacy ? spec.parseLegacy(legacyRaw) : JSON.parse(legacyRaw);
+        let parsedLegacy = spec.parseLegacy ? spec.parseLegacy(legacyRaw) : JSON.parse(legacyRaw);
+        // Legacy documents written by earlier builds carry the same
+        // {version, savedAt, data} envelope as current ones. Unwrap it before
+        // migrating, so the migration receives the stored payload rather than
+        // the wrapper (a wrapper reaching a migration was stored back again,
+        // double-nesting the value).
+        if (isRecord(parsedLegacy) && typeof parsedLegacy.version === 'number' && 'data' in parsedLegacy) {
+          parsedLegacy = parsedLegacy.data;
+        }
         const migrated = spec.migrateLegacy
           ? spec.migrateLegacy(parsedLegacy, new Date().toISOString())
           : parsedLegacy as T;
-        await writeNow(spec, migrated);
-        return migrated;
+        const healed = spec.normalize ? spec.normalize(migrated) : migrated;
+        await writeNow(spec, healed);
+        return healed;
       } catch {
         await quarantine(spec as KeySpec<unknown>, legacyRaw, 'Saved data from an older version could not be read. Defaults are in use.');
         return cloneDefault(spec.defaultValue);

@@ -1,5 +1,10 @@
 // Shared Jest setup for StormReady.
 // AsyncStorage ships an in-memory mock that matches its public API.
+// Keep date-only fixture rendering stable on CI hosts, which commonly run in
+// UTC while the app's date examples and screen fixtures use local calendar
+// dates in the app's default US locale.
+process.env.TZ = 'America/New_York';
+
 jest.mock('@react-native-async-storage/async-storage', () =>
   require('@react-native-async-storage/async-storage/jest/async-storage-mock'),
 );

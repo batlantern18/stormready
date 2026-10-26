@@ -3,7 +3,7 @@ import { ActivityIndicator, Linking, StyleSheet, Text, TextInput, View } from 'r
 import { httpJson } from '../../net/http';
 import { findNearbyShelters, type Shelter } from '../../shelters';
 import { usePlan } from '../../plan';
-import { OFFICIAL_ZONE_SOURCES, validateManualZone, zoneSummary } from '../../zone/verification';
+import { OFFICIAL_ZONE_SOURCES, validateManualZone, zoneAgeText, zoneSummary } from '../../zone/verification';
 import { Action, Body, Card, Field, Header, MotionPressable as Pressable, Page, Pill, Row } from '../../ui';
 import { darkColors, lightColors, type Palette, useAppTheme } from '../../theme';
 import { lookupEvacuationZone, type EvacuationZone } from '../../zone';
@@ -139,7 +139,7 @@ export default function MapScreenWeb() {
       {savedZone.value ? <View style={styles.zoneResult}>
         <View style={{ flex: 1, gap: 2 }}>
           <Text style={styles.zoneLabel}>{savedZone.label.toUpperCase()}</Text>
-          <Text style={styles.zoneValue}>{savedZone.provenance}{savedZone.ageDays !== null ? ` · verified ${savedZone.ageDays} days ago` : ''}</Text>
+          <Text style={styles.zoneValue}>{savedZone.provenance}{savedZone.ageDays !== null ? ` · verified ${zoneAgeText(savedZone.ageDays)}` : ''}</Text>
           {savedZone.warning ? <Text accessibilityRole="alert" style={styles.error}>{savedZone.warning}</Text> : null}
         </View>
       </View> : null}

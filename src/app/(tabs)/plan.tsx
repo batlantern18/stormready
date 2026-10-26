@@ -8,7 +8,7 @@ import { formatGallons } from '../../kit/format';
 import { earliestRefill, refrigeratedCount } from '../../medical/model';
 import { commsCompletion } from '../../comms/model';
 import { visibleTasks, effectiveMedicalNeeds, isMedicalPlanEmpty } from '../../plan-schema';
-import { zoneSummary } from '../../zone/verification';
+import { zoneAgeText, zoneSummary } from '../../zone/verification';
 import { BAG_TEMPLATES } from '../../gobag/templates';
 import { daysSinceDrill } from '../../scenarios/model';
 import { Action, Body, Card, Field, Header, Label, MotionPressable as Pressable, Page, Pill, ProgressBar, Row, Stepper, ToggleRow } from '../../ui';
@@ -143,7 +143,7 @@ export default function MyPlan() {
 
     <Card>
       <Row style={{ alignItems: 'flex-start' }}>
-        <View style={{ flex: 1, gap: 3 }}><Label>Evacuation zone</Label><Text style={{ color: colors.ink, fontSize: 18, fontWeight: '800' }}>{zone.label}</Text><Body>{zone.provenance}{zone.ageDays !== null ? ` · ${zone.ageDays} days ago` : ''}</Body></View>
+        <View style={{ flex: 1, gap: 3 }}><Label>Evacuation zone</Label><Text style={{ color: colors.ink, fontSize: 18, fontWeight: '800' }}>{zone.label}</Text><Body>{zone.provenance}{zone.ageDays !== null ? ` · ${zoneAgeText(zone.ageDays)}` : ''}</Body></View>
         <Pill tone={zone.stale ? 'amber' : zone.value ? 'green' : 'blue'}>{zone.value ? (zone.stale ? 'RECHECK' : 'RECORDED') : 'NOT SET'}</Pill>
       </Row>
       {zone.warning ? <Text accessibilityRole="alert" style={{ color: colors.warning, fontSize: 12, lineHeight: 17, fontWeight: '600' }}>{zone.warning}</Text> : null}

@@ -37,7 +37,7 @@
       "package": "org.stormready.app",
       "versionCode": 2,
       "adaptiveIcon": {
-        "backgroundColor": "#F3F7F2",
+        "backgroundColor": "#E6F3FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },

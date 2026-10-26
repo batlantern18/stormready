@@ -109,6 +109,11 @@ export function zoneProvenance(source: ZoneSource) {
   }
 }
 
+/** Age text for zone records, with the singular spelled out ("1 day ago"). */
+export function zoneAgeText(ageDays: number): string {
+  return ageDays === 1 ? '1 day ago' : `${ageDays} days ago`;
+}
+
 export function zoneSummary(zone: VerifiedZone, now = new Date()) {
   const stale = isZoneStale(zone, now);
   const age = zoneAgeDays(zone, now);

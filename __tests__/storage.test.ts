@@ -89,6 +89,64 @@ describe('storage load', () => {
     expect(saved.version).toBe(3);
   });
 
+  it('refills a plan wiped by the v1.2 migration bug from the surviving legacy document', async () => {
+    // Devices that ran the buggy first migration hold a default plan.v3 over
+    // real v2 data. The untouched legacy document must refill the wiped fields.
+    const legacy = {
+      version: 2,
+      savedAt: '2026-01-01T00:00:00.000Z',
+      data: {
+        onboarded: true,
+        household: { people: 2, days: 7, county: 'New York, New York' },
+        zone: { value: '', county: 'New York', verifiedAt: '2026-01-02T00:00:00.000Z', notes: 'No mapped zone was returned by the Florida lookup.', sourceUrl: 'https://example.com/zone' },
+        destination: { label: '', address: 'Empire State Building', transport: '' },
+        tasks: [{ id: 'water', title: 'Set aside drinking water', done: true }],
+      },
+    };
+    await AsyncStorage.setItem(planKey.key, document(3, DEFAULT_PLAN));
+    await AsyncStorage.setItem(planKey.legacyKey!, JSON.stringify(legacy));
+
+    const plan = await load(keys.plan);
+    expect(plan.profiles.default.destination.address).toBe('Empire State Building');
+    expect(plan.profiles.default.household.county).toBe('New York, New York');
+    expect(plan.profiles.default.zone.verifiedAt).toBe('2026-01-02T00:00:00.000Z');
+    expect(plan.onboarded).toBe(true);
+
+    const saved = JSON.parse((await AsyncStorage.getItem(planKey.key))!);
+    expect(saved.version).toBe(3);
+    expect(saved.data.profiles.default.destination.address).toBe('Empire State Building');
+  });
+
+  it('unstrands devices stuck on onboarding even when the fields were already restored', async () => {
+    const partlyRestored = {
+      ...DEFAULT_PLAN,
+      onboarded: false,
+      profiles: {
+        [DEFAULT_PROFILE_ID]: {
+          ...DEFAULT_PLAN.profiles[DEFAULT_PROFILE_ID],
+          destination: { label: '', address: 'Empire State Building', transport: '' },
+        },
+      },
+    };
+    const legacy = {
+      version: 2,
+      savedAt: '2026-01-01T00:00:00.000Z',
+      data: { onboarded: true, household: { people: 2, days: 7, county: 'New York, New York' }, destination: { address: 'Empire State Building' } },
+    };
+    await AsyncStorage.setItem(planKey.key, document(3, partlyRestored));
+    await AsyncStorage.setItem(planKey.legacyKey!, JSON.stringify(legacy));
+
+    const plan = await load(keys.plan);
+    expect(plan.onboarded).toBe(true);
+  });
+
+  it('keeps newer user edits when the legacy document has nothing to restore', async () => {
+    await AsyncStorage.setItem(planKey.key, document(3, DEFAULT_PLAN));
+    await AsyncStorage.setItem(planKey.legacyKey!, JSON.stringify({ version: 2, savedAt: '2026-01-01T00:00:00.000Z', data: {} }));
+
+    await expect(load(keys.plan)).resolves.toEqual(DEFAULT_PLAN);
+  });
+
   it('quarantines unreadable JSON and reports the issue', async () => {
     await AsyncStorage.setItem(planKey.key, '{oops');
     const issues: string[] = [];
