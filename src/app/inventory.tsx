@@ -5,8 +5,7 @@ import { LIMITS, clampInventoryEntry, isFutureIsoDate, type InventoryEntry } fro
 import {
   coverageFor,
   entryFor,
-  expiredItems,
-  expiringItems,
+  expiryReport,
   orphanEntries,
   stampRotation,
   type CoverageLine,
@@ -30,8 +29,9 @@ export default function Inventory() {
   const kitLines = useMemo(() => calculateKit(plan.household, plan.medical, plan.communication), [plan.household, plan.medical, plan.communication]);
   const coverage = coverageFor(kitLines, plan.inventory);
   const shelfLifeFor = (id: string) => kitLines.find(line => line.id === id)?.shelfLifeMonths;
-  const expired = expiredItems(plan.inventory.entries, new Date());
-  const expiring = expiringItems(plan.inventory.entries, new Date()).filter(entry => !expired.some(exp => exp.itemId === entry.itemId));
+  const expiry = expiryReport(plan.inventory.entries, new Date());
+  const expired = expiry.expired;
+  const expiring = expiry.expiringSoon;
   const orphans = orphanEntries(plan.inventory.entries, kitLines.map(line => line.id));
   const rotation = plan.inventory.entries.water || plan.inventory.entries.food
     ? rotationDateFor(entryFor(plan.inventory, 'water') ?? { itemId: 'water', owned: true, quantityOwned: 0, purchasedAt: null, expiresAt: null, note: '' }, shelfLifeFor('water'))

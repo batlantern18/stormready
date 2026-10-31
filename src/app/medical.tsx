@@ -13,10 +13,8 @@ import {
 } from '../plan-schema';
 import {
   DEFAULT_MEDICAL_CARD_FIELDS,
-  earliestRefill,
   medicalCardText,
-  needsPower,
-  refrigeratedCount,
+  medicalSummary,
   type MedicalCardFields,
 } from '../medical/model';
 import { newId } from '../util/id';
@@ -52,9 +50,10 @@ export default function Medical() {
 
   const medical = plan.medical;
   const empty = isMedicalPlanEmpty(medical);
-  const refill = useMemo(() => earliestRefill(medical), [medical]);
-  const refrigerated = refrigeratedCount(medical);
-  const powered = needsPower(medical);
+  const medicalFacts = useMemo(() => medicalSummary(medical), [medical]);
+  const refill = medicalFacts.earliestRefill;
+  const refrigerated = medicalFacts.refrigeratedCount;
+  const powered = medicalFacts.powered;
 
   useEffect(() => {
     let active = true;

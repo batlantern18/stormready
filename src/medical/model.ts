@@ -8,6 +8,10 @@ import { READY_GOV } from '../kit/catalog';
  * Every string this module produces names the user's own input, never a
  * clinical requirement (R-MED-2). Nothing here calls a clinician, a pharmacy,
  * or a network.
+ *
+ * The module's interface is three doors: `medicalSummary` (the derived facts
+ * the screens read), `medicalKitLines` (calculator inputs for F05), and the
+ * card export (`medicalCardText` with `MedicalCardFields`, R-MED-3).
  */
 
 export type MedicalCardFields = {
@@ -33,29 +37,43 @@ export const DEFAULT_MEDICAL_CARD_FIELDS: MedicalCardFields = {
   notes: false,
 };
 
-export function needsRefrigeration(plan: MedicalPlan) {
-  return plan.medications.some(medication => medication.refrigerated) ||
-    plan.devices.some(device => device.needsRefrigeration);
+/** The derived facts the screens read off a medical plan, in one shape. */
+export type MedicalSummary = {
+  /** Refrigerated medications in the plan (drives the cooler-pack line). */
+  refrigeratedCount: number;
+  /** True when any device needs something other than its own battery. */
+  powered: boolean;
+  /** Soonest valid prescription refill date; null when none recorded. */
+  earliestRefill: string | null;
+};
+
+export function medicalSummary(plan: MedicalPlan): MedicalSummary {
+  return {
+    refrigeratedCount: refrigeratedCount(plan),
+    powered: needsPower(plan),
+    earliestRefill: earliestRefill(plan),
+  };
 }
 
-export function needsPower(plan: MedicalPlan) {
+function needsPower(plan: MedicalPlan) {
   return plan.devices.some(device => device.powerSource !== 'battery');
 }
 
-export function refrigeratedCount(plan: MedicalPlan) {
-  return plan.medications.filter(medication => medication.refrigerated).length;
+function refrigeratedCount(plan: MedicalPlan) {
+  return plan.medications.filter(medication => medication.refrigerated).length +
+    plan.devices.filter(device => device.needsRefrigeration).length;
 }
 
 /**
  * The longest supply the household needs on hand (R-MED-9: a person on a
  * 30-day prescription is never told to stock 7). `null` when no medications.
  */
-export function longestPrescriptionDays(plan: MedicalPlan): number | null {
+function longestPrescriptionDays(plan: MedicalPlan): number | null {
   if (plan.medications.length === 0) return null;
   return Math.max(...plan.medications.map(medication => medication.days));
 }
 
-export function earliestRefill(plan: MedicalPlan): string | null {
+function earliestRefill(plan: MedicalPlan): string | null {
   const dates = plan.medications
     .map(medication => medication.prescriptionRefillDate)
     .filter((value): value is string => Boolean(value))

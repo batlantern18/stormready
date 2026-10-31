@@ -7,6 +7,10 @@ import { BAG_TEMPLATES } from './templates';
  * A bag stores kit line ids only (R-BAG-1). Quantities inside a bag always
  * come from the current `calculateKit` output, so a household change ripples
  * into every bag automatically (R-BAG-3: progress is derived, never stored).
+ *
+ * The module's interface: `createBag` and `suggestedPersonalBags` (building),
+ * `setPackedFor` and `removeLineFromBag` (mutating), and the derived facts
+ * `bagProgress` / `missingLineIds` / `bagToText`.
  */
 
 export function createBag(
@@ -47,18 +51,6 @@ export function suggestedPersonalBags(
   );
 }
 
-/**
- * The bag's lines in bag order, resolved against the current kit. Lines that
- * no longer exist in the calculated kit are listed by `missingLineIds` —
- * never silently dropped (R-BAG-1).
- */
-export function linesForBag<T extends { id: string }>(bag: GoBag, kitLines: T[]): T[] {
-  const byId = new Map(kitLines.map(line => [line.id, line]));
-  return bag.itemIds
-    .map(id => byId.get(id))
-    .filter((line): line is T => Boolean(line));
-}
-
 /** Kit line ids a bag references that are not in the current kit (R-BAG-1). */
 export function missingLineIds(bag: GoBag, kitLineIds: string[]): string[] {
   const known = new Set(kitLineIds);
@@ -87,24 +79,11 @@ export function bagProgress(bag: GoBag): BagProgress {
   };
 }
 
-function setPacked(bag: GoBag, itemId: string, packed: boolean): GoBag {
+export function setPackedFor(bag: GoBag, itemId: string, packed: boolean): GoBag {
   const next = { ...bag.packed };
   if (packed) next[itemId] = true;
   else delete next[itemId];
   return { ...bag, packed: next };
-}
-
-export function togglePacked(bag: GoBag, itemId: string): GoBag {
-  return setPacked(bag, itemId, !bag.packed[itemId]);
-}
-
-export function setPackedFor(bag: GoBag, itemId: string, packed: boolean): GoBag {
-  return setPacked(bag, itemId, packed);
-}
-
-export function addLineToBag(bag: GoBag, itemId: string): GoBag {
-  if (bag.itemIds.includes(itemId)) return bag;
-  return { ...bag, itemIds: [...bag.itemIds, itemId] };
 }
 
 export function removeLineFromBag(bag: GoBag, itemId: string): GoBag {

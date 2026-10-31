@@ -1,14 +1,11 @@
 import {
-  addLineToBag,
   bagProgress,
   bagToText,
   createBag,
-  linesForBag,
   missingLineIds,
   removeLineFromBag,
   setPackedFor,
   suggestedPersonalBags,
-  togglePacked,
 } from '../src/gobag/model';
 import { BAG_TEMPLATES } from '../src/gobag/templates';
 import { DEFAULT_HOUSEHOLD, type GoBag, type Household } from '../src/plan-schema';
@@ -66,10 +63,9 @@ describe('suggested personal bags (R-BAG-7)', () => {
 });
 
 describe('bag lines and progress (R-BAG-1, R-BAG-3)', () => {
-  it('resolves known lines and reports missing ones without dropping them', () => {
-    const resolved = linesForBag(bag(), kitLines);
-    expect(resolved.map(line => line.id)).toEqual(['water', 'food']);
+  it('reports missing kit lines without dropping them (R-BAG-1)', () => {
     expect(missingLineIds(bag(), kitLines.map(line => line.id))).toEqual(['missing-line']);
+    expect(missingLineIds(bag(), ['water', 'food', 'missing-line'])).toEqual([]);
   });
 
   it('derives progress, with null percent for an empty bag', () => {
@@ -79,16 +75,12 @@ describe('bag lines and progress (R-BAG-1, R-BAG-3)', () => {
     expect(empty.total).toBe(0);
   });
 
-  it('toggles packing and honors explicit set', () => {
-    expect(togglePacked(bag(), 'food').packed).toEqual({ water: true, food: true });
-    expect(togglePacked(bag(), 'water').packed).toEqual({});
+  it('packs and unpacks lines explicitly', () => {
     expect(setPackedFor(bag(), 'food', true).packed.food).toBe(true);
     expect(setPackedFor(bag(), 'water', false).packed.water).toBeUndefined();
   });
 
-  it('adds and removes lines, cleaning packed state', () => {
-    expect(addLineToBag(bag(), 'water').itemIds).toEqual(bag().itemIds); // no duplicates
-    expect(addLineToBag(bag(), 'radio').itemIds.at(-1)).toBe('radio');
+  it('removes lines and cleans packed state', () => {
     const withoutWater = removeLineFromBag(bag(), 'water');
     expect(withoutWater.itemIds).toEqual(['food', 'missing-line']);
     expect(withoutWater.packed.water).toBeUndefined();

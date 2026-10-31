@@ -101,10 +101,11 @@ This document describes each feature in detail. It intentionally excludes intern
 
 - **Home:** Preparedness progress, next steps, alert guidance.
 - **Prepare:** Household details, emergency kit, checklist, zone/destination planning.
+- **Map:** Shelters, evacuation zone, offline map areas, and on-device route guidance.
 - **Updates:** Alerts and local guidance.
 - **Power:** Backup power planner.
 - **Settings:** Appearance, reminders, saved plan, trusted guidance, about.
 
 ## Out of scope for this document
 
-- Internal offline mapping and routing systems are not described here.
+- Internal offline mapping and routing systems are not described here; see [`maps-architecture.md`](./maps-architecture.md).

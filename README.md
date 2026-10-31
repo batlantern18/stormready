@@ -1,76 +1,82 @@
-# StormReady v1.2
+# StormReady
 
-StormReady is a local-first preparedness app for households in the United States and Mexico. It helps people build and maintain an emergency plan, prepare supplies, coordinate with household members, and check official local guidance. Its Map screen supports shelter and evacuation-zone tools, offline map areas, and local route guidance. Personal plan data is stored on the device; StormReady does not require an account.
+StormReady is a local-first emergency preparedness app for households in the United States and Mexico. It helps a household build an emergency plan, keep supplies current, coordinate with one another, and check official local guidance. Plan data stays on the device; there is no account, and no server stores it.
 
-## What's new in v1.2
+StormReady is a planning aid, not an emergency alert authority. Follow current directions from local emergency management and confirm shelter availability before traveling.
 
-- **Track supplies:** record kit inventory, quantities, and expiration or rotation dates, then review gaps and items that need attention.
-- **Build household go-bags:** organize grab-and-go supplies by person and track bag readiness.
-- **Plan how to reconnect:** save household contacts, meeting locations, and check-in plans that can be shared without an account.
-- **Practice before an emergency:** use offline scenario drills to find gaps and turn them into practical next steps.
-- **See preparedness at a glance:** review a readiness summary and seasonal priorities without suggesting that conditions are safe.
-- **Improve privacy controls:** review local data, transfer a household plan between devices, and clear saved data from the app.
-- **Keep the map and location tools:** find shelters, verify evacuation zones, save an offline area, and use route guidance within its saved road coverage.
-- **Keep v1.1 essentials:** the household-sized emergency kit, checklist, evacuation-zone verification, local reminders, weather guidance, and shelter information remain part of the app.
+## What the app covers
 
-StormReady is a planning aid, not an emergency alert authority. Follow current directions from local emergency management and verify shelter availability before traveling. Availability of automated zone lookup and alert data depends on location and official data sources.
+Six tabs — **Home**, **Prepare**, **Map**, **Updates**, **Power**, **Settings** — plus onboarding and screens for the kit, inventory, go-bags, medical needs, communication plan, drills, readiness summary, and plan transfer. The interface runs in English and Spanish, in light and dark themes.
+
+`docs/FEATURES.md` describes each screen and behavior in detail.
+
+## Documentation
+
+| Read this | For |
+|---|---|
+| `docs/FEATURES.md` | What each screen does, and the scope of each feature |
+| `docs/maps-architecture.md` | How the Map tab, offline packs, on-device routing, and zone lookup work |
+| `GLOSSARY.md` | Domain terms (kit, go-bag, drill, readiness score, plan file) — use these in issues, ADRs, and UI copy |
+| `docs/adr/` | Decisions already made, and why |
+| `docs/spec/` | Build specs for shipped releases — historical plans, not current behavior |
+| `RELEASE_NOTES.md` | What shipped in each release |
+| `AGENTS.md` | Build, lint, and navigation rules for coding agents and contributors |
 
 ## Run in development
 
 ```sh
 npm install
-npx expo start
+npm start
 ```
 
-MapLibre includes native code, so use an Android development build (`npx expo run:android`) or an installed development client; Expo Go does not include the map module. Address search and new map downloads need an internet connection.
+MapLibre ships native code, so use an Android development build (`npm run android`) or an installed development client. Expo Go does not include the map module. Address search and new map downloads need an internet connection.
 
 ## Build an installable Android APK
 
-This project includes an EAS `preview` profile configured to produce an APK (rather than an app bundle). After signing in to Expo, run:
+The EAS `preview` profile produces an APK rather than an app bundle. After signing in to Expo:
 
 ```sh
-npx eas-cli@latest login
-npm run android:apk
+cd scripts
+./build-apk.sh
 ```
 
-EAS builds the APK in the cloud. When the build finishes, download the APK from the build page or CLI link and install it on an Android device. Cloud builds require an Expo account and network access. For a local Gradle build, install Android Studio and the Android SDK, then run `npx expo prebuild --platform android` and `npx expo run:android`.
+EAS builds in the cloud and prints a download link when the build finishes. Cloud builds need an Expo account and network access. For a local Gradle build, install Android Studio and the Android SDK, then run `npx expo run:android`; `android/` is generated, so never edit it by hand.
 
 ## Quality checks
 
-Run these before opening a pull request:
+Run all five before opening a pull request:
 
 ```sh
-npx expo lint
-npx tsc --noEmit
+npm run lint
+npm run typecheck
 npm test
 npm run test:coverage
-npx expo-doctor
+npm run doctor
 ```
 
-The Jest suite covers the kit calculator and formatting, StormReady 1.0 → plan schema v2 migration, storage migration/corruption/newer-version handling, manual zone validation and staleness, reminder scheduling, HTTP retries, offline routing/downloads with mocked fetch, the FEMA and Florida zone data sources, and the pure plan reducer. Component tests render the onboarding flow, the kit, the Home, Prepare, Settings, and Updates screens with React Native Testing Library. `fetch` is blocked globally in the Jest setup, so no test can reach the network.
+CI runs the same gates on every push and pull request. Coverage floors are enforced per directory; the numbers live in `package.json` under `jest.coverageThreshold`.
 
-`npm run test:coverage` enforces the coverage floor: at least 80 % statement coverage for `src/kit`, `src/storage`, and `src/zone`, and at least 60 % across `src/`.
+`fetch` is blocked globally in `jest.setup.js`, so no test can reach the network — mock `globalThis.fetch` when a test needs a response. Suites live in `__tests__/`.
 
-GitHub Actions runs the same lint, typecheck, test, coverage, and Expo Doctor gates on pushes and pull requests.
-
-Location, maps, notifications, and file import/export need a manual pass on a physical device. Emulators do not fully cover notification channels, background delivery, map rendering, or platform file pickers.
+Location, maps, notifications, QR scanning, and file import/export need a manual pass on a physical device. Emulators do not fully cover notification channels, background delivery, map rendering, or platform file pickers.
 
 ## Over-the-air updates
 
-The app uses EAS Update. The `preview` and `production` EAS build profiles use matching update channels; confirm the configured runtime version is compatible with the installed native build before publishing.
+The app uses EAS Update, and the `preview` and `production` build profiles use matching update channels.
 
 ```sh
-# Publish JavaScript/asset changes to the internal preview channel
 npx eas-cli@latest update --channel preview --message "Describe the change"
-
-# Publish to production after the matching build is installed
 npx eas-cli@latest update --channel production --message "Describe the change"
 ```
 
-OTA updates cannot add native modules or change native configuration. If you change native dependencies or permissions, create a new build and increment `runtimeVersion` (or switch to the app-version policy) so devices never receive an incompatible update.
+OTA updates cannot add native modules or change native configuration. Confirm the installed build's `runtimeVersion` matches before publishing; native changes need a new build.
 
-## Scope and data freshness
+## Scope and data
 
-Offline vector-map packs are limited to 3,000 tiles and 50 MB per map download. Offline routes work only inside the road area saved on the device; they do not include live traffic, closures, or turn restrictions. U.S. shelter information may come from FEMA; Mexico shelter listings may rely on community-mapped data. Verify that a shelter is open and has space with local authorities. Automated evacuation-zone lookup is currently available only for Florida; elsewhere, use the zone published by your local emergency authority. Local authorities issue current evacuation orders. Location is requested only after you choose a location-based action, and personal plan information remains on-device unless you explicitly share or export it.
+- Offline map packs are capped at 3,000 tiles and 50 MB per download.
+- Offline routes work only inside the road area saved on the device. They do not include live traffic, closures, or turn restrictions.
+- U.S. shelter data may come from FEMA; Mexico listings may rely on community-mapped data. Confirm a shelter is open and has space with local authorities.
+- Automated evacuation-zone lookup is available only in Florida. Elsewhere, use the zone published by your local emergency authority.
+- Location is requested only after you choose a location-based action. Plan data stays on the device unless you export or share it; transfers go device to device by QR code or `.stormready-plan` file, with no server involved.
 
 Preparedness references: [FEMA](https://www.fema.gov/emergency-managers), [National Weather Service](https://www.weather.gov/), [Ready.gov](https://www.ready.gov/), [Mexico Protección Civil](https://www.gob.mx/proteccioncivil), [Mexico National Weather Service (SMN)](https://smn.conagua.gob.mx/es/), and [CENAPRED National Risk Atlas](https://www.atlasnacionalderiesgos.gob.mx/).

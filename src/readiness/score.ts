@@ -2,7 +2,7 @@ import { effectiveMedicalNeeds, isMedicalPlanEmpty, visibleTasks, type Communica
 import { commsCompletion, hasOutOfAreaContact } from '../comms/model';
 import { isZoneStale } from '../zone/verification';
 import { bagProgress } from '../gobag/model';
-import { coverageFor, expiredItems, expiringItems } from '../inventory/model';
+import { coverageFor, expiryReport } from '../inventory/model';
 import { daysSinceDrill } from '../scenarios/model';
 
 /**
@@ -121,8 +121,9 @@ function coverageFactor(input: ReadinessInput): ReadinessFactor {
 function expiryFactor(input: ReadinessInput, now: Date): ReadinessFactor | null {
   const owned = Object.values(input.inventory.entries).filter(entry => entry.owned);
   if (!owned.length) return null;
-  const expired = expiredItems(input.inventory.entries, now);
-  const expiring = expiringItems(input.inventory.entries, now);
+  const report = expiryReport(input.inventory.entries, now);
+  const expired = report.expired;
+  const expiring = report.expiringSoon;
   const earned = Math.max(0, (owned.length - expired.length - expiring.length * 0.5) / owned.length);
   const parts: string[] = [];
   if (expired.length) parts.push(`${expired.length} expired`);

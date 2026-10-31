@@ -1,14 +1,9 @@
 import {
   coverageFor,
   entryFor,
-  expiredItems,
-  expiringItems,
-  EXPIRING_SOON_DAYS,
-  countTracked,
+  expiryReport,
   orphanEntries,
-  removeEntry,
   stampRotation,
-  upsertEntry,
 } from '../src/inventory/model';
 import { isRotationDue, nextRotation, rotationDateFor } from '../src/inventory/rotation';
 import type { InventoryEntry } from '../src/plan-schema';
@@ -66,40 +61,29 @@ describe('entry helpers', () => {
   it('clamps a corrupted quantity of "abc" (R-INV-11)', () => {
     expect(entryFor({ entries: { water: entry({ quantityOwned: 'abc' as never }) }, lastRotationAt: null }, 'water')?.quantityOwned).toBe(0);
   });
+});
 
-  it('clamps quantity into [0, 9999] and notes to 140 chars', () => {
-    const clamped = upsertEntry({}, entry({ quantityOwned: 12345, note: 'x'.repeat(200) }));
-    expect(clamped.water.quantityOwned).toBe(9999);
-    expect(clamped.water.note).toHaveLength(140);
+describe('expiry report', () => {
+  it('treats exactly 60 days as expiring soon and 61 as not', () => {
+    const inWindow = expiryReport({ water: entry({ expiresAt: new Date(now.getTime() + 60 * DAY).toISOString() }) }, now);
+    expect(inWindow.expiringSoon).toHaveLength(1);
+    expect(inWindow.expired).toHaveLength(0);
+    const outWindow = expiryReport({ water: entry({ expiresAt: new Date(now.getTime() + 61 * DAY).toISOString() }) }, now);
+    expect(outWindow.expiringSoon).toHaveLength(0);
+    expect(outWindow.expired).toHaveLength(0);
   });
 
-  it('ignores an entry without an item id', () => {
-    expect(upsertEntry({}, entry({ itemId: '' }))).toEqual({});
-  });
-
-  it('removes an entry', () => {
-    const next = removeEntry({ water: entry(), food: entry({ itemId: 'food' }) }, 'water');
-    expect(Object.keys(next)).toEqual(['food']);
+  it('separates expired from expiring and keeps expired visible (R-INV-6)', () => {
+    const report = expiryReport({ water: entry({ expiresAt: '2026-01-01T00:00:00.000Z' }) }, now);
+    expect(report.expired).toHaveLength(1);
+    expect(report.expiringSoon).toHaveLength(0);
+    expect(expiryReport({ water: entry({ expiresAt: '2099-01-01T00:00:00.000Z' }) }, now)).toMatchObject({ expired: [], expiringSoon: [] });
+    expect(expiryReport({ water: entry({ owned: false, expiresAt: '2026-01-01T00:00:00.000Z' }) }, now).expired).toHaveLength(0);
+    expect(expiryReport({ water: entry({ expiresAt: 'not a date' }) }, now)).toMatchObject({ expired: [], expiringSoon: [] });
   });
 });
 
-describe('expiry and rotation windows', () => {
-  it('treats exactly 60 days as expiring soon and 61 as not', () => {
-    const inWindow = expiringItems({ water: entry({ expiresAt: new Date(now.getTime() + 60 * DAY).toISOString() }) }, now);
-    const outWindow = expiringItems({ water: entry({ expiresAt: new Date(now.getTime() + 61 * DAY).toISOString() }) }, now);
-    expect(inWindow).toHaveLength(1);
-    expect(outWindow).toHaveLength(0);
-    expect(EXPIRING_SOON_DAYS).toBe(60);
-  });
-
-  it('lists expired owned items and keeps them visible (R-INV-6)', () => {
-    const expired = expiredItems({ water: entry({ expiresAt: '2026-01-01T00:00:00.000Z' }) }, now);
-    expect(expired).toHaveLength(1);
-    expect(expiredItems({ water: entry({ expiresAt: '2099-01-01T00:00:00.000Z' }) }, now)).toHaveLength(0);
-    expect(expiredItems({ water: entry({ owned: false, expiresAt: '2026-01-01T00:00:00.000Z' }) }, now)).toHaveLength(0);
-    expect(expiredItems({ water: entry({ expiresAt: 'not a date' }) }, now)).toHaveLength(0);
-  });
-
+describe('rotation windows', () => {
   it('computes the rotation date from purchasedAt plus shelf life months', () => {
     const due = rotationDateFor(entry({ purchasedAt: '2026-03-15T00:00:00.000Z' }), 12);
     expect(due?.getMonth()).toBe(2); // March + 12 = March next year
@@ -149,9 +133,5 @@ describe('orphan entries (R-INV-1)', () => {
   it('lists entries whose kit line no longer exists', () => {
     const orphans = orphanEntries({ water: entry(), firstAid: entry({ itemId: 'first-aid' }) }, ['water']);
     expect(orphans.map(entry => entry.itemId)).toEqual(['first-aid']);
-  });
-
-  it('counts tracked items', () => {
-    expect(countTracked({ water: entry(), food: entry({ itemId: 'food' }) })).toBe(2);
   });
 });

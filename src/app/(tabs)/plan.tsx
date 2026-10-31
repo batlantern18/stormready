@@ -5,7 +5,7 @@ import { useRouter } from 'expo-router';
 import { usePlan } from '../../plan';
 import { calculateKit } from '../../kit/calculator';
 import { formatGallons } from '../../kit/format';
-import { earliestRefill, refrigeratedCount } from '../../medical/model';
+import { medicalSummary } from '../../medical/model';
 import { commsCompletion } from '../../comms/model';
 import { visibleTasks, effectiveMedicalNeeds, isMedicalPlanEmpty } from '../../plan-schema';
 import { zoneAgeText, zoneSummary } from '../../zone/verification';
@@ -100,10 +100,11 @@ export default function MyPlan() {
   const water = kit.find(line => line.id === 'water')?.quantity ?? 0;
   const zone = zoneSummary(plan.zone);
   const medicalOpen = effectiveMedicalNeeds(household, plan.medical);
-  const refill = useMemo(() => earliestRefill(plan.medical), [plan.medical]);
+  const medicalFacts = useMemo(() => medicalSummary(plan.medical), [plan.medical]);
+  const refill = medicalFacts.earliestRefill;
   const commsDone = commsCompletion(plan.communication);
   const drillDays = daysSinceDrill(plan.drills.results, new Date());
-  const refrigeratedMedCount = refrigeratedCount(plan.medical);
+  const refrigeratedMedCount = medicalFacts.refrigeratedCount;
 
   return <Page>
     <Header eyebrow="Your household plan" title="Make room for peace of mind." subtitle="A few practical details help turn preparedness into a plan that fits your household." />

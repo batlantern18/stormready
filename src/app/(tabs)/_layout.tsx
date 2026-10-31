@@ -29,8 +29,8 @@ export default function TabLayout() {
 }
 
 /**
- * The glyph is decorative: the tab already carries a title and an accessible
- * label, so the symbol is hidden from screen readers to avoid a double read.
+ * The Power tab uses ⏻ (U+23FB, OFF SYMBOL) — a clean, grayscale outline glyph
+ * that matches the other tabs' aesthetic and avoids emoji-presentation color.
  */
 function TabIcon({ symbol, color, focused }: { symbol: string; color: ColorValue; focused: boolean }) {
   return <View

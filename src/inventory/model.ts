@@ -6,9 +6,13 @@ import { clampInventoryEntry, type InventoryEntry, type InventoryState } from '.
  * Inventory is the user's own tracking of what they own (R-INV-5). It never
  * changes the calculated kit; the UI shows the two side by side. Coverage is
  * always derived from `calculateKit` output (R-INV-4) and never stored.
+ *
+ * The module's interface: `coverageFor` (side-by-side coverage), `expiryReport`
+ * (the expired + expiring-soon facts both the screen and the score read),
+ * `orphanEntries` and `stampRotation` (R-INV-1 / R-INV-9), and `entryFor`.
  */
 
-export const EXPIRING_SOON_DAYS = 60;
+const EXPIRING_SOON_DAYS = 60;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export type CoverageLine = {
@@ -25,24 +29,6 @@ export type CoverageLine = {
 export function entryFor(inventory: InventoryState, itemId: string): InventoryEntry | null {
   const entry = inventory.entries[itemId];
   return entry ? clampInventoryEntry(entry) : null;
-}
-
-export function upsertEntry(
-  entries: Record<string, InventoryEntry>,
-  entry: InventoryEntry,
-): Record<string, InventoryEntry> {
-  const clean = clampInventoryEntry(entry);
-  if (!clean.itemId) return entries;
-  return { ...entries, [clean.itemId]: clean };
-}
-
-export function removeEntry(
-  entries: Record<string, InventoryEntry>,
-  itemId: string,
-): Record<string, InventoryEntry> {
-  const next = { ...entries };
-  delete next[itemId];
-  return next;
 }
 
 /**
@@ -75,35 +61,29 @@ export function coverageFor(
   return result;
 }
 
-/** Owned items expiring within `days` (boundary: day 60 in, day 61 out). */
-export function expiringItems(
-  entries: Record<string, InventoryEntry>,
-  now: Date,
-  days = EXPIRING_SOON_DAYS,
-): InventoryEntry[] {
-  const nowMs = now.getTime();
-  return Object.values(entries)
-    .filter(entry => entry.owned && entry.expiresAt)
-    .filter(entry => {
-      const expires = new Date(entry.expiresAt ?? '').getTime();
-      if (Number.isNaN(expires)) return false;
-      const diff = expires - nowMs;
-      return diff >= 0 && diff <= days * DAY_MS;
-    });
-}
+/** The expired and expiring-soon facts of an inventory, in one shape. */
+export type ExpiryReport = {
+  /** Owned items past their expiry date. They never disappear silently. */
+  expired: InventoryEntry[];
+  /** Owned items expiring within 60 days (boundary: day 60 in, day 61 out). */
+  expiringSoon: InventoryEntry[];
+};
 
-/** Owned items past their expiry date. They never disappear silently. */
-export function expiredItems(
+export function expiryReport(
   entries: Record<string, InventoryEntry>,
   now: Date,
-): InventoryEntry[] {
+): ExpiryReport {
   const nowMs = now.getTime();
-  return Object.values(entries)
-    .filter(entry => entry.owned && entry.expiresAt)
-    .filter(entry => {
-      const expires = new Date(entry.expiresAt ?? '').getTime();
-      return !Number.isNaN(expires) && expires < nowMs;
-    });
+  const expired: InventoryEntry[] = [];
+  const expiringSoon: InventoryEntry[] = [];
+  for (const entry of Object.values(entries)) {
+    if (!entry.owned || !entry.expiresAt) continue;
+    const expires = new Date(entry.expiresAt).getTime();
+    if (Number.isNaN(expires)) continue;
+    if (expires < nowMs) expired.push(entry);
+    else if (expires - nowMs <= EXPIRING_SOON_DAYS * DAY_MS) expiringSoon.push(entry);
+  }
+  return { expired, expiringSoon };
 }
 
 /**
@@ -155,8 +135,4 @@ export function stampRotation(
     entries: nextEntries,
     lastRotationAt: touched ? nowIso : null,
   };
-}
-
-export function countTracked(entries: Record<string, InventoryEntry>): number {
-  return Object.values(entries).length;
 }

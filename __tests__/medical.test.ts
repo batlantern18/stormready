@@ -1,12 +1,8 @@
 import {
   DEFAULT_MEDICAL_CARD_FIELDS,
-  earliestRefill,
-  longestPrescriptionDays,
   medicalCardText,
   medicalKitLines,
-  needsPower,
-  needsRefrigeration,
-  refrigeratedCount,
+  medicalSummary,
 } from '../src/medical/model';
 import { DEFAULT_HOUSEHOLD, clampMedication, clampMedicalDevice, isMedicalPlanEmpty, type MedicalPlan } from '../src/plan-schema';
 
@@ -24,32 +20,49 @@ function plan(overrides: Partial<MedicalPlan> = {}): MedicalPlan {
   };
 }
 
-describe('medical derivations', () => {
-  it('detects refrigeration from medications and devices', () => {
-    expect(needsRefrigeration(plan())).toBe(true);
-    expect(needsRefrigeration(plan({ medications: [{ id: 'm', name: '', dose: '', schedule: '', days: 7, refrigerated: false, prescriptionRefillDate: null, pharmacy: '', notes: '' }] }))).toBe(false);
-    expect(refrigeratedCount(plan())).toBe(1);
+describe('medicalSummary (derived facts)', () => {
+  it('counts refrigerated medications', () => {
+    expect(medicalSummary(plan()).refrigeratedCount).toBe(1);
+    expect(medicalSummary(plan({ medications: [{ id: 'm', name: '', dose: '', schedule: '', days: 7, refrigerated: false, prescriptionRefillDate: null, pharmacy: '', notes: '' }] })).refrigeratedCount).toBe(0);
+  });
+
+  it('counts refrigerated devices too (regression: was dropped in plan-schema refactor)', () => {
+    const planWithRefrigeratedDevice: MedicalPlan = {
+      medications: [],
+      devices: [{ id: 'd1', name: 'Cooler', powerSource: 'battery', backupHours: 0, needsRefrigeration: true }],
+      contacts: [],
+      allergies: '',
+      notes: '',
+    };
+    expect(medicalSummary(planWithRefrigeratedDevice).refrigeratedCount).toBe(1);
+
+    const planWithBoth: MedicalPlan = {
+      medications: [{ id: 'm1', name: 'Insulin', dose: '10 units', schedule: 'Morning', days: 7, refrigerated: true, prescriptionRefillDate: null, pharmacy: '', notes: '' }],
+      devices: [
+        { id: 'd1', name: 'Cooler', powerSource: 'battery', backupHours: 0, needsRefrigeration: true },
+        { id: 'd2', name: 'Pump', powerSource: 'battery', backupHours: 0, needsRefrigeration: true },
+      ],
+      contacts: [],
+      allergies: '',
+      notes: '',
+    };
+    expect(medicalSummary(planWithBoth).refrigeratedCount).toBe(3);
   });
 
   it('detects the need for backup power only for mains/both devices', () => {
-    expect(needsPower(plan())).toBe(true);
-    expect(needsPower(plan({ devices: [{ id: 'd', name: 'x', powerSource: 'battery', backupHours: 0, needsRefrigeration: false }] }))).toBe(false);
-    expect(needsPower(plan({ devices: [] }))).toBe(false);
-  });
-
-  it('reports the longest prescription supply (R-MED-9)', () => {
-    expect(longestPrescriptionDays(plan())).toBe(7);
-    const long = plan({ medications: [{ id: 'a', name: 'A', dose: '', schedule: '', days: 30, refrigerated: false, prescriptionRefillDate: null, pharmacy: '', notes: '' }] });
-    expect(longestPrescriptionDays(long)).toBe(30);
-    expect(longestPrescriptionDays(plan({ medications: [] }))).toBeNull();
+    expect(medicalSummary(plan()).powered).toBe(true);
+    expect(medicalSummary(plan({ devices: [{ id: 'd', name: 'x', powerSource: 'battery', backupHours: 0, needsRefrigeration: false }] })).powered).toBe(false);
+    expect(medicalSummary(plan({ devices: [] })).powered).toBe(false);
   });
 
   it('finds the earliest refill date', () => {
-    expect(earliestRefill(plan())).toBe('2026-11-01T00:00:00.000Z');
-    expect(earliestRefill(plan({ medications: [] }))).toBeNull();
-    expect(earliestRefill(plan({ medications: [{ id: 'x', name: 'x', dose: '', schedule: '', days: 7, refrigerated: false, prescriptionRefillDate: 'nonsense', pharmacy: '', notes: '' }] }))).toBeNull();
+    expect(medicalSummary(plan()).earliestRefill).toBe('2026-11-01T00:00:00.000Z');
+    expect(medicalSummary(plan({ medications: [] })).earliestRefill).toBeNull();
+    expect(medicalSummary(plan({ medications: [{ id: 'x', name: 'x', dose: '', schedule: '', days: 7, refrigerated: false, prescriptionRefillDate: 'nonsense', pharmacy: '', notes: '' }] })).earliestRefill).toBeNull();
   });
+});
 
+describe('medical plan invariants', () => {
   it('treats an empty plan as empty', () => {
     expect(isMedicalPlanEmpty(plan({ medications: [], devices: [], contacts: [], allergies: ' ', notes: '' }))).toBe(true);
     expect(isMedicalPlanEmpty(plan())).toBe(false);
@@ -78,10 +91,16 @@ describe('medical kit lines (F03)', () => {
     expect(power?.basis).toContain('CPAP');
   });
 
-  it('emits the extra-days line at the longest supply', () => {
+  it('emits the extra-days line at the longest supply (R-MED-9)', () => {
     const lines = medicalKitLines(plan(), DEFAULT_HOUSEHOLD);
     const extra = lines.find(line => line.id === 'medical-extra-days');
     expect(extra).toMatchObject({ quantity: 7, unit: 'day', unitPlural: 'days' });
+
+    const long = plan({ medications: [{ id: 'a', name: 'A', dose: '', schedule: '', days: 30, refrigerated: false, prescriptionRefillDate: null, pharmacy: '', notes: '' }] });
+    const longExtra = medicalKitLines(long, DEFAULT_HOUSEHOLD).find(line => line.id === 'medical-extra-days');
+    expect(longExtra).toMatchObject({ quantity: 30 });
+
+    expect(medicalKitLines(plan({ medications: [] }), DEFAULT_HOUSEHOLD).find(line => line.id === 'medical-extra-days')).toBeUndefined();
   });
 
   it('emits nothing for an empty plan', () => {
