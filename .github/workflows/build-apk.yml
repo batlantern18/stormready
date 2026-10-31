@@ -1,0 +1,81 @@
+name: Build APK
+
+on:
+  push:
+    branches: [master, main]
+  workflow_dispatch:
+
+concurrency:
+  group: build-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # EAS expects these for expo prebuild, but we build locally
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Setup JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          api-level: 34
+          ndk-version: r27c
+          emulator: false
+
+      - name: Build release APK
+        run: |
+          chmod +x scripts/build-apk.sh
+          ./scripts/build-apk.sh
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: stormready-apk
+          path: StormReady-*.apk
+          retention-days: 30
+
+      - name: Generate release notes
+        if: startsWith(github.ref, 'refs/tags/')
+        id: release-notes
+        run: |
+          PREV_TAG=$(git tag --sort=-v:refname | head -2 | tail -1 2>/dev/null || echo "")
+          if [ -z "$PREV_TAG" ]; then
+            RANGE=""
+          else
+            RANGE="$PREV_TAG..HEAD"
+          fi
+          echo 'notes<<EOF' >> $GITHUB_OUTPUT
+          if [ -n "$RANGE" ]; then
+            git log --pretty=format:'- %s (%h)' $RANGE
+          else
+            git log --pretty=format:'- %s (%h)' -20
+          fi
+          echo ''
+          echo 'EOF' >> $GITHUB_OUTPUT
+
+      - name: Create release on tag push
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: StormReady-*.apk
+          generate_release_notes: false
+          body: ${{ steps.release-notes.outputs.notes }}
