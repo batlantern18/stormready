@@ -39,6 +39,7 @@ jobs:
         with:
           api-level: 34
           ndk-version: r27c
+          cmdline-tools-version: latest
           emulator: false
 
       - name: Build release APK
